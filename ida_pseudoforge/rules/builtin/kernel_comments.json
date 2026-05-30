@@ -1,0 +1,97 @@
+{
+  "schema_version": 1,
+  "id": "pseudoforge.builtin.kernel_comments",
+  "description": "Builtin low-risk semantic comment rules mirrored from deterministic call-presence insights.",
+  "rules": [
+    {
+      "id": "builtin.comment.resource_pair",
+      "phase": "semantic_comment",
+      "priority": 80,
+      "confidence": 0.92,
+      "scope": {
+        "calls_all": ["ExAcquireResourceExclusiveLite", "ExReleaseResourceLite"]
+      },
+      "match": {
+        "text_contains_all": ["ExAcquireResourceExclusiveLite", "ExReleaseResourceLite"]
+      },
+      "emit": {
+        "kind": "semantic_comment",
+        "comment_kind": "resource",
+        "text": "ERESOURCE exclusive acquisition with common release tail",
+        "evidence": "Acquire and release calls are both present"
+      }
+    },
+    {
+      "id": "builtin.comment.critical_region",
+      "phase": "semantic_comment",
+      "priority": 80,
+      "confidence": 0.88,
+      "scope": {
+        "text_contains_all": ["KeGetCurrentThread()", "KernelApcDisable", "KeLeaveCriticalRegion"]
+      },
+      "match": {
+        "text_contains_all": ["KeGetCurrentThread()", "KernelApcDisable", "KeLeaveCriticalRegion"]
+      },
+      "emit": {
+        "kind": "semantic_comment",
+        "comment_kind": "critical_region",
+        "text": "Inline critical region entry can be normalized to KeEnterCriticalRegion and paired with KeLeaveCriticalRegion",
+        "evidence": "Inline KernelApcDisable decrement and KeLeaveCriticalRegion are present"
+      }
+    },
+    {
+      "id": "builtin.comment.failfast_corrupt_list",
+      "phase": "semantic_comment",
+      "priority": 80,
+      "confidence": 0.94,
+      "scope": {
+        "text_contains": "__fastfail(3"
+      },
+      "match": {
+        "text_contains": "__fastfail(3"
+      },
+      "emit": {
+        "kind": "semantic_comment",
+        "comment_kind": "failfast",
+        "text": "FAST_FAIL_CORRUPT_LIST_ENTRY style path detected; review LIST_ENTRY integrity checks",
+        "evidence": "__fastfail(3) is present"
+      }
+    },
+    {
+      "id": "builtin.comment.pool_allocation",
+      "phase": "semantic_comment",
+      "priority": 70,
+      "confidence": 0.86,
+      "scope": {
+        "calls_any": ["ExAllocatePool2"]
+      },
+      "match": {
+        "text_contains": "ExAllocatePool2"
+      },
+      "emit": {
+        "kind": "semantic_comment",
+        "comment_kind": "pool",
+        "text": "Pool allocation path detected; pair allocation failures with STATUS_INSUFFICIENT_RESOURCES",
+        "evidence": "ExAllocatePool2 is present"
+      }
+    },
+    {
+      "id": "builtin.comment.object_reference",
+      "phase": "semantic_comment",
+      "priority": 70,
+      "confidence": 0.84,
+      "scope": {
+        "text_contains": "ObfDereferenceObject"
+      },
+      "match": {
+        "text_contains": "ObfDereferenceObject"
+      },
+      "emit": {
+        "kind": "semantic_comment",
+        "comment_kind": "object_reference",
+        "text": "Kernel object/context reference ownership changes are present",
+        "evidence": "Object dereference path is present"
+      }
+    }
+  ]
+}

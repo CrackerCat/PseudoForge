@@ -1,0 +1,267 @@
+{
+  "schema_version": 1,
+  "id": "pseudoforge.builtin.local_renames",
+  "description": "Builtin low-risk local rename rules mirrored from deterministic semantic and assignment patterns.",
+  "rules": [
+    {
+      "id": "builtin.local.previous_mode_name",
+      "phase": "rename",
+      "priority": 90,
+      "confidence": 0.99,
+      "scope": {
+        "lvars_any": ["PreviousMode"]
+      },
+      "match": {
+        "text_contains": "PreviousMode"
+      },
+      "emit": {
+        "kind": "rename",
+        "rename_kind": "lvar",
+        "target": "PreviousMode",
+        "new_name": "previousMode",
+        "source": "rule",
+        "evidence": "Hex-Rays kept kernel PreviousMode casing"
+      }
+    },
+    {
+      "id": "builtin.local.current_thread_name",
+      "phase": "rename",
+      "priority": 90,
+      "confidence": 0.99,
+      "scope": {
+        "lvars_any": ["CurrentThread"]
+      },
+      "match": {
+        "text_contains": "CurrentThread"
+      },
+      "emit": {
+        "kind": "rename",
+        "rename_kind": "lvar",
+        "target": "CurrentThread",
+        "new_name": "currentThread",
+        "source": "rule",
+        "evidence": "KTHREAD pointer returned by KeGetCurrentThread"
+      }
+    },
+    {
+      "id": "builtin.local.active_processor_count",
+      "phase": "rename",
+      "priority": 90,
+      "confidence": 0.98,
+      "scope": {
+        "lvars_any": ["ActiveProcessorCount"]
+      },
+      "match": {
+        "text_contains": "ActiveProcessorCount"
+      },
+      "emit": {
+        "kind": "rename",
+        "rename_kind": "lvar",
+        "target": "ActiveProcessorCount",
+        "new_name": "activeProcessorCount",
+        "source": "rule",
+        "evidence": "processor count local naming normalization"
+      }
+    },
+    {
+      "id": "builtin.local.process",
+      "phase": "rename",
+      "priority": 90,
+      "confidence": 0.94,
+      "scope": {
+        "lvars_any": ["Process"]
+      },
+      "match": {
+        "text_contains": "Process"
+      },
+      "emit": {
+        "kind": "rename",
+        "rename_kind": "lvar",
+        "target": "Process",
+        "new_name": "currentProcess",
+        "source": "rule",
+        "evidence": "local holds the current thread process object"
+      }
+    },
+    {
+      "id": "builtin.local.updated_status",
+      "phase": "rename",
+      "priority": 90,
+      "confidence": 0.95,
+      "scope": {
+        "lvars_any": ["updated"]
+      },
+      "match": {
+        "text_contains": "updated"
+      },
+      "emit": {
+        "kind": "rename",
+        "rename_kind": "lvar",
+        "target": "updated",
+        "new_name": "status",
+        "source": "rule",
+        "evidence": "local accumulates NTSTATUS-style return values"
+      }
+    },
+    {
+      "id": "builtin.local.object_reference_output",
+      "phase": "rename",
+      "priority": 90,
+      "confidence": 0.92,
+      "scope": {
+        "lvars_any": ["Object"]
+      },
+      "match": {
+        "text_contains": "Object"
+      },
+      "emit": {
+        "kind": "rename",
+        "rename_kind": "lvar",
+        "target": "Object",
+        "new_name": "referencedObject",
+        "source": "rule",
+        "evidence": "local is used as object reference output"
+      }
+    },
+    {
+      "id": "builtin.local.driver_service_name",
+      "phase": "rename",
+      "priority": 90,
+      "confidence": 0.98,
+      "scope": {
+        "lvars_any": ["DriverServiceName"]
+      },
+      "match": {
+        "text_contains": "DriverServiceName"
+      },
+      "emit": {
+        "kind": "rename",
+        "rename_kind": "lvar",
+        "target": "DriverServiceName",
+        "new_name": "driverServiceName",
+        "source": "rule",
+        "evidence": "UNICODE_STRING local naming normalization"
+      }
+    },
+    {
+      "id": "builtin.local.privilege_value",
+      "phase": "rename",
+      "priority": 90,
+      "confidence": 0.90,
+      "scope": {
+        "lvars_any": ["PrivilegeValue"]
+      },
+      "match": {
+        "text_contains": "PrivilegeValue"
+      },
+      "emit": {
+        "kind": "rename",
+        "rename_kind": "lvar",
+        "target": "PrivilegeValue",
+        "new_name": "privilegeValue",
+        "source": "rule",
+        "evidence": "LUID privilege local naming normalization"
+      }
+    },
+    {
+      "id": "builtin.local.session_id",
+      "phase": "rename",
+      "priority": 90,
+      "confidence": 0.98,
+      "scope": {
+        "lvars_any": ["SessionId"]
+      },
+      "match": {
+        "text_contains": "SessionId"
+      },
+      "emit": {
+        "kind": "rename",
+        "rename_kind": "lvar",
+        "target": "SessionId",
+        "new_name": "sessionId",
+        "source": "rule",
+        "evidence": "session identifier local naming normalization"
+      }
+    },
+    {
+      "id": "builtin.pattern.input_length_copy",
+      "phase": "rename",
+      "priority": 80,
+      "confidence": 0.93,
+      "scope": {
+        "text_contains": "(unsigned int)a3"
+      },
+      "match": {
+        "assignment_regex": "\\b(?P<dst>[A-Za-z_][A-Za-z0-9_]*)\\s*=\\s*\\(unsigned\\s+int\\)\\s*a3\\b"
+      },
+      "emit": {
+        "kind": "rename",
+        "rename_kind": "lvar",
+        "target": "$dst",
+        "new_name": "inputLength",
+        "source": "rule",
+        "evidence": "local is a 32-bit copy of SystemInformationLength"
+      }
+    },
+    {
+      "id": "builtin.pattern.info_class_copy",
+      "phase": "rename",
+      "priority": 80,
+      "confidence": 0.97,
+      "scope": {
+        "text_contains": "(int)a1"
+      },
+      "match": {
+        "assignment_regex": "\\b(?P<dst>[A-Za-z_][A-Za-z0-9_]*)\\s*=\\s*\\(int\\)\\s*a1\\b"
+      },
+      "emit": {
+        "kind": "rename",
+        "rename_kind": "lvar",
+        "target": "$dst",
+        "new_name": "infoClass",
+        "source": "rule",
+        "evidence": "local is the integer dispatcher copied from SystemInformationClass"
+      }
+    },
+    {
+      "id": "builtin.pattern.previous_mode_assignment",
+      "phase": "rename",
+      "priority": 80,
+      "confidence": 0.99,
+      "scope": {
+        "calls_any": ["KeGetCurrentThread"]
+      },
+      "match": {
+        "assignment_regex": "\\b(?P<dst>[A-Za-z_][A-Za-z0-9_]*)\\s*=\\s*KeGetCurrentThread\\(\\)->PreviousMode\\b"
+      },
+      "emit": {
+        "kind": "rename",
+        "rename_kind": "lvar",
+        "target": "$dst",
+        "new_name": "previousMode",
+        "source": "rule",
+        "evidence": "local captures current thread PreviousMode"
+      }
+    },
+    {
+      "id": "builtin.pattern.current_process_assignment",
+      "phase": "rename",
+      "priority": 80,
+      "confidence": 0.94,
+      "scope": {
+        "calls_any": ["KeGetCurrentThread"]
+      },
+      "match": {
+        "assignment_regex": "\\b(?P<dst>[A-Za-z_][A-Za-z0-9_]*)\\s*=\\s*KeGetCurrentThread\\(\\)->ApcState\\.Process\\b"
+      },
+      "emit": {
+        "kind": "rename",
+        "rename_kind": "lvar",
+        "target": "$dst",
+        "new_name": "currentProcess",
+        "source": "rule",
+        "evidence": "local captures current thread process object"
+      }
+    }
+  ]
+}

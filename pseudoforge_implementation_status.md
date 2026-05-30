@@ -1,0 +1,561 @@
+# PseudoForge Implementation Status
+
+Current plugin version: `0.1.0`.
+
+## Current MVP
+
+Implemented in this folder:
+
+1. IDA plugin entrypoint
+   - `pseudoforge.py`
+   - `ida-plugin.json`
+   - `ida_pseudoforge/version.py` as the runtime version source of truth
+
+2. IDA integration layer
+   - `ida_pseudoforge/ida/action_registry.py`
+   - `ida_pseudoforge/ida/analysis_state.py`
+   - `ida_pseudoforge/ida/plugin.py`
+   - `ida_pseudoforge/ida/actions.py`
+   - `ida_pseudoforge/ida/async_runner.py`
+   - `ida_pseudoforge/ida/decompiler.py`
+   - `ida_pseudoforge/ida/apply_changes.py`
+   - `ida_pseudoforge/ida/llm_config_dialog.py`
+   - `ida_pseudoforge/ida/ui_preview.py`
+   - `ida_pseudoforge/ida/thread_helpers.py`
+   - `ida_pseudoforge/logging.py`
+   - IDA menu actions for preview, LLM configuration, and version/settings display
+
+3. Core analysis engine
+   - function capture from pseudocode text
+   - local declaration extraction
+   - function prototype parsing
+   - `ida_pseudoforge/core/kernel_semantics.py`
+   - high-confidence parameter/local rename plan generation
+   - rename validation
+   - dispatcher/case value recovery from comparison and subtraction chains
+   - `SYSTEM_INFORMATION_CLASS` delta-chain normalization through the profile reverse lookup
+   - chained dispatcher temporaries are rewritten when the source delta remains structurally adjacent
+   - stale dispatcher temporary comparisons after large branch bodies are left unchanged
+   - single-return safe body extraction for recovered switch outlines
+   - cleanup label classification
+   - kernel driver semantics pass
+   - NTSTATUS literal normalization in returns and status assignments
+   - WDK-generated NTSTATUS profile coverage includes 5391 unsigned/signed lookup entries for WDK 10.0.26100.0
+   - driver-dispatch NTSTATUS coverage includes `STATUS_INVALID_USER_BUFFER`, `STATUS_DELETE_PENDING`, `STATUS_DEVICE_BUSY`, `STATUS_BUFFER_TOO_SMALL`, `STATUS_INVALID_DEVICE_REQUEST`, and newer facilities such as `STATUS_IORING_VERSION_NOT_SUPPORTED`
+   - low success/wait status values are intentionally excluded from the generated profile except `STATUS_SUCCESS` and `STATUS_PENDING`
+   - deterministic LIST_ENTRY record/link/tail rename hints that outrank generic LLM suggestions
+   - LIST_ENTRY unlink/insert-tail insights
+   - inferred provider record layout hints for common allocation/list patterns
+   - ERESOURCE, critical region, pool allocation, object reference, and failfast insights
+   - pool tag decoding for common Hex-Rays integer literals
+   - profile-backed NTSTATUS, `SYSTEM_INFORMATION_CLASS`, and `PROCESSINFOCLASS` names
+   - DriverEntry-style setup recognition with deterministic `driverObject`, `registryPath`, `status`, `extension`, `deviceObject`, `deviceName`, and `majorIndex` names
+   - DriverEntry preview signature normalization, IRP major-function constants, `NT_SUCCESS` tests, `DO_*` device flags, and `FILE_DEVICE_SECURE_OPEN` rendering
+   - IOCTL dispatcher case constant annotation with exact `CTL_CODE(DeviceType, Function, Method, Access)` bitfield decoding
+   - IOCTL-gated `IO_STACK_LOCATION.Parameters.DeviceIoControl` field rendering and deterministic device-control local naming from `_DWORD *` stack-location indexing
+   - preview-only inferred driver device-extension field rendering for common DriverEntry initialization and cleanup offsets
+   - 25H2-range `SYSTEM_INFORMATION_CLASS` profile coverage
+   - 25H2-range `PROCESSINFOCLASS` profile coverage through `ProcessAvailableCpus`
+   - `NtSetSystemInformation` canonical prototype and body alias normalization
+   - `NtSetInformationProcess` canonical prototype normalization
+   - WDK-backed `kernel_api.json` profile generated from WDK `km` and `shared` headers
+   - kernel API profile currently includes 3501 function prototypes, 1760 enums, 8354 structures, 19865 aliases, 58251 macros, and 93592 symbol index entries for WDK 10.0.26100.0
+   - profile lookup covers function, structure, alias, macro, enum, and enum member names through the `symbols` index
+   - API argument rewrite uses profile metadata for `POOL_FLAGS`, `BOOLEAN`, and pool tag parameters
+   - kernel API override profile maps private wrapper prefixes such as `Obp -> Ob`, `Psp -> Ps`, `Iop -> Io`, `Mmp -> Mm`, and `Sep -> Se` when a public WDK prototype exists
+   - `WithTag`/pool API `Tag` arguments are inferred as pool tags, including private wrapper calls such as `ObpReferenceObjectByHandleWithTag`
+   - scalar `BOOLEAN` parameters are inferred as boolean argument rewrite targets
+   - low-byte boolean call argument cleanup for known kernel helper calls
+   - cleaned preview shows normalized original pseudocode first and appends recovered switch-case view as an auxiliary outline
+   - recovered switch-case view omits complex case bodies instead of emitting style-breaking partial fragments
+   - native switch bodies already present in normalized original pseudocode are not duplicated in the auxiliary outline
+   - generated pseudocode style pass enforces next-line braces, mandatory braces, standalone `else`, and guard flattening
+   - duplicate semantic cleanup labels are given stable suffixes such as `InvalidParameter_17` to avoid duplicate labels and accidental self-goto rewrites
+   - `do { } while (false)` single-exit conversion is not forced
+   - LLM warning dictionaries are normalized to readable warning messages
+   - routine skipped rename warnings are display-filtered for large dispatchers
+   - `.forge` metadata warning count uses the same displayed warning count as the rendered header
+   - large-dispatcher LLM rename validation rejects speculative dispatcher temporaries
+   - cleaned pseudocode export
+   - cleaned pseudocode preview in an IDA custom viewer
+   - aggregate `.forge` file beside the analyzed binary, with one replaceable section per function EA
+   - runtime version is shown in `Show settings`, CLI `--version`, preview/export headers, switch outlines, `.forge` sections, and IDA Free JSON reports
+   - `tools/release_pseudoforge.py` bumps the plugin version and writes `release/PseudoForge-<version>.zip`
+   - aggregate `.forge` storage finalizes path-like string literals before writing
+   - `Show current analysis result` displays only the cached current function `.forge` section and does not trigger decompile, LLM, or `.forge` refresh work
+   - top-level `Analyzed functions...` action opens a chooser from cached `.forge` section markers instead of opening the full aggregate file
+   - switch outline export
+   - flow report export
+   - IDA Output progress logging
+   - IDA Output is limited to user-action start, completion, and failure messages
+   - asynchronous log queue drained by an IDA main-thread timer callback
+   - `PSEUDOFORGE_DISABLE_OUTPUT_LOG=1` fallback that keeps file trace while disabling Output writes
+   - Analyze completion shows the summary popup and opens the cached preview after the popup closes
+   - Analyze completion opens the current function section preview when the aggregate `.forge` has multiple sections
+   - preview UI before/after checkpoints mirrored to `%TEMP%\pseudoforge_preview_trace.log`
+   - worker-thread execution for analyze/export so Output logs can update while LLM work is running
+   - plugin analysis state records target path, function EA/name, fingerprint, capture, plan, and `.forge` text/path as a session
+   - analyze/export/apply share a conservative background coordination group to avoid racing plugin state
+   - apply-selected-renames refuses stale sessions when the current function no longer matches the analyzed function
+   - apply-selected-renames performs final preflight before `ida_hexrays.rename_lvar()`, including selected-source, apply flag, arg/lvar kind, identifier, missing-local, collision, and duplicate-target checks
+   - analysis session path identity normalizes Windows case and separator differences to avoid false stale-session refusals
+   - plugin action lifecycle is centralized through `ActionRegistry`
+   - preview popup actions can be cleaned up during plugin termination
+   - native IDA `simplecustviewer_t` preview, avoiding PyQt/PluginForm embedding for the `.forge` viewer
+   - preview popup actions for Copy all, Save as, and Analyzed functions
+   - Copy all writes `.forge` text directly through Windows Clipboard API `CF_UNICODETEXT`
+   - Copy all writes `%TEMP%\pseudoforge_clipboard\copy_all.log` with clipboard API status
+   - deterministic rules matching engine v1 under `ida_pseudoforge/core/deterministic`
+   - data-only JSON rule pack schema, loader, validator, matcher, emitter, and rule report data
+   - builtin rule packs under `ida_pseudoforge/rules/builtin`
+   - project-local `.\pseudoforge_rules\*.json` and user-global `%APPDATA%\PseudoForge\rules\*.json` loading
+   - v1 active phases: `rename` and `semantic_comment`
+   - v1 supported match operators: `regex`, `assignment_regex`, `text_contains`, and `text_contains_all`
+   - builtin rules mirror low-risk local rename, assignment rename, and call-presence semantic comment rules while keeping existing hard-coded deterministic passes in place
+   - rule-based rename suggestions still pass through `validate_renames()`
+   - export bundles include `<function>.rule-report.json`
+   - export bundles are documented as durable review, audit, sharing, and regression artifacts rather than an IDB write path
+
+4. Offline CLI
+   - `tools/pseudoforge_cli.py`
+   - `tools/pseudoforge_free_cli.py`
+   - `tools/pseudoforge_ida_batch.py`
+   - `tools/run_pseudoforge_ida_batch.ps1`
+   - `tools/summarize_pseudoforge_ida_batch.py`
+   - `tools/empty_llm_rename_provider.py`
+   - `tools/pseudoforge_free_console.py`
+   - `tools/validate_pseudoforge_rules.py`
+   - optional `--llm-renames` path for configured rename assist provider
+   - `--llm-provider` supports OpenAI-compatible, OpenRouter, DeepSeek API, Codex CLI, Claude CLI, `chatgpt_oauth_via_codex_cli`, and `claude_login_via_claude_cli`
+   - optional `--rules-dir` for additional deterministic rule directories
+   - optional `--rule-report` for writing a rule report JSON file or directory
+   - IDA Free-compatible offline CLI path for copied or saved cloud-decompiled pseudocode text
+   - IDA Free CLI path uses `ida_pseudoforge/core/offline_input.py` for conservative single-function extraction
+   - IDA Free CLI path rejects no-function and multiple-function inputs with actionable diagnostics
+   - IDA Free CLI path emits cleaned pseudocode, raw pseudocode, raw-vs-cleaned diff, rename map, warnings, rule report, and summary artifacts
+   - IDA Free CLI path supports `--project-root`, `--rules`, `--llm`, `--no-llm`, `--no-progress`, and `--format text|json`
+   - IDA Free CLI text mode prints incremental progress by default and reports `complete`, `partial`, or `failed` final status summaries
+   - IDA Free CLI JSON mode keeps stdout machine-readable and writes progress to stderr unless `--no-progress` is used
+   - IDA Free CLI path does not import IDA-only modules, does not use IDAPython or local Hex-Rays APIs, and does not modify an IDB
+   - headless IDA batch mode can iterate `.i64`/`.idb` functions, call Hex-Rays decompile, analyze through PseudoForge, append `.forge` sections, and write JSONL progress reports
+   - optional `--compare-dir` / `-CompareDir` emits per-function raw Hex-Rays text, PseudoForge cleaned output, full `.forge` section, and raw-vs-cleaned unified diff artifacts
+   - optional `--llm-renames` / `-LlmRenames` routes batch analysis through the same rename provider/fallback path as interactive IDA Analyze
+   - Hex-Rays decompile-unavailable functions are recorded as `skipped` instead of PseudoForge failures
+
+5. Optional LLM assist
+   - `ida_pseudoforge/models/openai_compatible.py`
+   - `ida_pseudoforge/models/cli_provider.py`
+   - `ida_pseudoforge/models/provider_factory.py`
+   - `ida_pseudoforge/models/provider_registry.py`
+   - `ida_pseudoforge/models/prompting.py`
+   - `ida_pseudoforge/core/llm_assist.py`
+   - `ida_pseudoforge/config.py`
+   - IDA-side `pseudoforge_config.json` storage
+   - read-only provider combo box in `Configure LLM rename assist`
+   - read-only provider-specific model combo box in `Configure LLM rename assist`
+   - dynamic model discovery through `codex debug models` / Codex cache for ChatGPT and Codex CLI providers
+   - warning-free static Claude model list for Claude CLI providers, headed by current IDs and aliases: `claude-opus-4-8`, `claude-sonnet-4-6`, and `claude-haiku-4-5`
+   - dynamic model discovery through `/models` for HTTP providers, with static fallback
+   - CLI command templates pass the selected model through `{model}`
+   - migration for old default Codex/Claude command templates that did not pass `{model}`, used unsupported Codex CLI flags, or omitted the safer Claude print-mode flags
+   - Windows CLI provider calls and Codex model discovery request hidden child console windows to avoid Claude/Codex console flashes during normal runs
+   - analyze summary displays warning details instead of only warning counts
+   - provider-specific API key storage under `credentials`
+   - API key prompt only when an enabled HTTP provider has no stored key
+   - disabled by default
+   - IDA LLM configuration dialog logic is isolated in `ida_pseudoforge/ida/llm_config_dialog.py`, and model-discovery exceptions fall back to static model lists without saving corrupt config
+
+6. Tests
+   - `tests/test_core_engine.py`
+   - `tests/test_ida_plugin_safety.py`
+   - `tests/test_pseudoforge_free_cli.py`
+   - `tests/test_release_pseudoforge.py`
+   - current suite covers 189 unit tests
+
+## Latest Implementation Notes
+
+The current implementation state reflects the `NtSetSystemInformation` and `NtSetInformationProcess` large-dispatcher regression pass:
+
+- `NtSetSystemInformation` preview now uses the canonical native API signature and introduces typed `__m128i *` aliases without changing the underlying decompiler body semantics.
+- `SYSTEM_INFORMATION_CLASS` literal and delta-chain rewrites are profile-backed, including chained temporaries such as `v86 = v85 - 8` when the rewrite is still structurally tied to the original dispatcher comparison.
+- `NtSetInformationProcess` preview now uses the canonical native API signature with `PROCESSINFOCLASS processInformationClass` and rewrites process-info-class case labels/comparisons through the 25H2 profile.
+- Casted native switches such as `switch ((int)a2)` are recognized as native dispatchers, so length/alignment comparisons on `ProcessInformationLength` are not promoted into auxiliary switch recovery.
+- Switch outline generation is intentionally conservative: only single-statement return bodies are expanded, while complex or shared branch bodies point back to the normalized original pseudocode.
+- TraceLogging/C++ template wrapper functions are excluded from switch recovery to avoid mapping wrapper size constants onto unrelated `SYSTEM_INFORMATION_CLASS` names.
+- Direct `return 0` becomes `STATUS_SUCCESS` only when the function has strong NTSTATUS return evidence; mixed error-code helpers with decompiler `__int64`/`char` return types keep raw zero returns.
+- LLM-only `status` renames no longer enable zero-to-`STATUS_SUCCESS` assignment rewriting; that rewrite requires strong NTSTATUS context or a deterministic kernel-status accumulator.
+- `status_codes.json` is generated from WDK `shared\ntstatus.h`; the default generator policy keeps `STATUS_SUCCESS`, `STATUS_PENDING`, and severity-bit informational/warning/error codes, while excluding low wait/success aliases such as `STATUS_WAIT_1` to avoid rewriting ordinary boolean-like status locals.
+- LLM-assisted runs no longer apply generic prototype fallback argument names such as `argument0`; explicit API parameter names and strong semantic renames are kept, while generic LLM argument placeholders are rejected.
+- LLM argument renames for raw `aN` parameters require stronger confidence than local renames, reducing speculative names for forwarded internal helper arguments.
+- LLM `saved*` local renames copied directly from `aN` parameters now require a strong matching semantic rename for that source parameter; uncertain forwarded arguments no longer leak into confident saved-copy names.
+- LLM local/argument renames now reject PascalCase names so inferred private structure roles do not look like authoritative type or field names.
+- Label role classification distinguishes accounting/state-update success return tails from cleanup dispatch tails, while preserving `__fastfail(3)` corrupt-list labels.
+- Rename validation now suppresses weak large-dispatcher names for numeric temporaries and preserves stronger deterministic names such as `infoClass`, `inputLength`, CPU set buffers, saved previous mode, active processor count, and allocated pool buffers.
+- Rendered warning counts are synchronized between `.forge` section metadata and the human-readable header after display-only warning filters are applied.
+- Preview/save/copy paths finalize escaped path-like string literals consistently, and current-function preview opens the matching `.forge` section instead of always opening the full aggregate file.
+- Headless IDA batch analysis now prefers the workspace package over an already installed IDA plugin package, merges text-declared locals with `cfunc.lvars`, and supports append-only `.forge` writing for full-kernel sweeps.
+- Batch comparison artifacts can now be enabled for raw Hex-Rays vs PseudoForge review without changing the default full-kernel sweep output size.
+- Batch LLM mode is explicit: deterministic sweeps stay cheap by default, while `-LlmRenames` uses configured provider settings and records per-function `llm_status`.
+- A WDK WDM kernel-pattern driver corpus now lives under `samples/kernel_pattern_driver`; Release/Debug x64 builds and TestSign succeed locally.
+- The kernel-pattern driver now includes an opt-in `ObRegisterCallbacks` process object callback path with LIST_ENTRY-backed whitelist/blacklist walks, `CONTAINING_RECORD`, requested-access checks, and whitelist auto-add telemetry concentrated inside `PfkpObjectPreOperation` for single-function decompile testing.
+- OB pre-operation callback rendering now reduces noisy Hex-Rays raw offset loads such as `*(_DWORD *)(*(_QWORD *)(preOperationInfo + 32) + 4LL)` to `preOperationInfo->Parameters->...OriginalDesiredAccess` when the callback context is known.
+- No-symbol OB pre-operation callback rendering now recognizes suspicious `POB_PRE_OPERATION_CALLBACK` second parameters when field-use evidence matches `POB_PRE_OPERATION_INFORMATION`, preserves a stronger context-parameter name when available, normalizes the second parameter to `preOperationInfo`, rewrites typed-array offset loads such as `*((_QWORD *)preOperationInfo + 4)`, and renders zero callback returns as `OB_PREOP_SUCCESS`.
+- OB pre-operation desired-access low-byte zero initialization is normalized to a full scalar zero assignment only after `OriginalDesiredAccess` field evidence identifies the target access-mask local.
+- OB pre-operation private LIST_ENTRY process-rule records and event records now receive preview-only inferred record types only when allocation size, list walk shape, and fixed field-write evidence all match; confirmed process-rule loops are rendered with a separate `LIST_ENTRY *` iterator and `CONTAINING_RECORD(...)`.
+- Profile-backed `0xC???????` NTSTATUS error literals are now rendered symbolically in 4-byte local assignments and `_DWORD` stores, while wider stores keep the raw literal.
+- DriverEntry cleanup now recognizes the kernel-pattern test driver's dispatch-table/device-creation shape and renders a preview-only `INFERRED_DRIVER_DEVICE_EXTENSION`, `NT_SUCCESS(status)`, IRP major constants, `DO_BUFFERED_IO`, `DO_DEVICE_INITIALIZING`, `FILE_DEVICE_SECURE_OPEN`, lookaside pool tags, work-item cleanup, registry-path buffer cleanup, and resource/lookaside field access.
+- DriverEntry display warnings now suppress routine LLM sub-function rename guesses and redundant `DeferredContext`/device-extension wording after deterministic DriverEntry evidence is recovered.
+- Unknown or vendor `DEVICE_TYPE` values remain literal, such as `0x8337u`, unless a trusted binary/profile source proves a standard `FILE_DEVICE_*` name; original source macro names are not inferred.
+- Inferred DriverEntry device-extension structs are preview aids only; they do not rewrite allocation or whole-extension zeroing sizes into reconstructed source `sizeof(...)` expressions.
+- IOCTL dispatcher case labels now keep the original numeric case value and Hex-Rays integer suffixes, and add exact `CTL_CODE(...)` comments, for example `METHOD_BUFFERED` and access bits, without inventing driver-specific `IOCTL_*` names.
+- IRP dispatch handlers now render preview signatures as `NTSTATUS __fastcall Name(PDEVICE_OBJECT deviceObject, PIRP irp)` when IRP completion or `IoStatus` evidence identifies the handler.
+- No-PDB IRP dispatch detection now accepts direct `IofCompleteRequest(...)` evidence for the second parameter, including casted `(IRP *)a2` forms, without forcing a DeviceControl union arm.
+- `IO_STACK_LOCATION` `_DWORD *` index rendering is union-arm gated: the DeviceIoControl arm is used only when IRP dispatch evidence is present, `ioControlCode` is loaded from the stack location, and an IOCTL dispatcher is present; non-IOCTL IRP paths remain raw until their major-function-specific union arm is proven.
+- IRP dispatch body cleanup now renders `deviceObject->DeviceExtension`, upgrades local `status` to `NTSTATUS`, and emits `return status;` without requiring DeviceControl-specific evidence.
+- DeviceControl stack-location rendering no longer requires a DeviceExtension load, and LLM-suggested `ioControlCode`/`ioStackLocation` names alone do not force the DeviceControl union arm outside IRP dispatch paths.
+- Driver dispatch DeviceExtension locals are recovered deterministically from `DeviceObject + 64`/`DeviceObject->DeviceExtension`, overriding weaker names such as `deviceContext`.
+- METHOD_BUFFERED-only DeviceControl paths can render `AssociatedIrp.MasterIrp` as `AssociatedIrp.SystemBuffer` with a `PVOID` local only when `IoControlCode` is proven to come from the DeviceControl stack location, while METHOD_NEITHER, mixed-method dispatchers, or IOCTL-like switches without stack evidence keep the original union alias.
+- Device-control dispatch cleanup now detects stack-location variables by `[6]` `IoControlCode` usage instead of by variable name, and deterministic names correct reversed LLM `inputBufferLength`/`outputBufferLength` suggestions using the x64 `IO_STACK_LOCATION.Parameters.DeviceIoControl` indices.
+- IRP completion tail labels that set `IoStatus`, call `IofCompleteRequest`, and return status are now classified as `irp_complete_request_tail` and rendered as `CompleteIrp` instead of `unknown_label_block`.
+- Device-control display warnings now suppress stale buffered/SystemBuffer, dispatch-signature, subhandler-renaming, and low-confidence LLM rename noise once deterministic IOCTL/IRP evidence has already resolved those points.
+- Headless IDA batch validation can pass `-Opdb:off` through `tools/run_pseudoforge_ida_batch.ps1 -NoPdb`, and the wrapper retries once when a fresh IDA load exits with an empty report file.
+- `MmGetSystemRoutineAddress` assignments now allow profile-backed argument cleanup for matching indirect calls. Routine-string evidence receives high confidence, variable-name-only evidence is lower confidence, arity mismatches are skipped, and the rendered call remains indirect with a `resolved indirect call` comment.
+- Callback registration toggles that combine process/image/thread notify callbacks with `ObRegisterCallbacks` now recover deterministic local names, suppress stale LLM struct warnings, normalize `NTSTATUS`/`BOOLEAN` signature pieces, and rewrite Hex-Rays `_QWORD[4]` operation registration arrays into `OB_OPERATION_REGISTRATION` field assignments.
+- Configuration Manager registry callback probe functions that call `CmGetCallbackVersion`, `CmRegisterCallbackEx`, `CmRegisterCallback`, and `CmUnRegisterCallback` now recover callback context, version, altitude, cookie, and split registration status roles without relying on LLM names, and successful registration checks render as `NT_SUCCESS(...)`.
+- Memory Manager probe functions that combine `MmGetSystemRoutineAddress`, `MmCopyMemory`, MDL setup, noncached memory, and contiguous memory allocation now recover routine-name, buffer, MDL, byte-count, and physical-address locals. `MmCopyMemory` flag literals now render as `MM_COPY_MEMORY_PHYSICAL` or `MM_COPY_MEMORY_VIRTUAL`.
+- Zw API corpus/probe functions that combine object, registry, token, and file Zw calls now recover deterministic handle, token, status, object-attribute, timeout, IO-status, value-name, and shared info-buffer roles. The preview normalizes `OBJECT_ATTRIBUTES` size, `OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE`, `NtCurrentProcess()`, `NtCurrentThread()`, and `NT_SUCCESS(...)` checks without inventing direct import-style replacements.
+- README and deterministic rules design docs now include project-local JSON authoring examples, validation commands, CLI application commands, and rule report inspection steps.
+- README preview documentation now includes the animated interactive IDA demo at `screenshots/PseudoForge-demo.gif`.
+- Repository documentation is now maintained in English-only form, including README, design documents, status notes, and sample documentation.
+- The `NtSetSystemInformation_switch_renamed.cpp` offline CLI smoke input has been moved from the repository root to `samples/pseudocode/`, and documentation commands now reference the sample path.
+
+Deterministic rules matching engine v1 is implemented:
+
+- `deterministic_rules_matching_engine_design.md` remains the phased design document for later `call_arg_rewrite`, `text_rewrite`, and `flow` migration.
+- Current v1 keeps kernel API, kernel rewrites, cleanup rewrite, and flow recovery behavior unchanged except for additive rule reporting.
+- Rule packs are loaded from builtin, project-local, and user-global directories, with project-local resolution based on the analyzed source/binary path instead of process CWD only.
+- Rule pack loading is cached by directory signature for session reuse while still picking up file additions, removals, size changes, and timestamp changes.
+- Rule directory resolution deduplicates equivalent builtin, project-local, user-global, and explicit extra paths before loading.
+- Invalid rule packs are rejected fail-closed and surfaced through redacted rule report/warnings without crashing analysis.
+- Rule validation rejects invalid scope regexes, invalid match regexes, ambiguous primary regex matchers, empty match definitions, empty text gates, duplicate rule IDs, boolean numeric fields, invalid confidence, and missing emit fields.
+- Runtime rule exceptions are caught per rule and recorded as rejected rule emissions instead of aborting analysis.
+- Rule JSON cannot spoof internal trusted rename sources; emitted rename suggestions always use source `rule`.
+- Rename rule conflicts for the same target are resolved with `override_of`, priority, confidence, load order, and rule ID before the existing rename validator runs.
+
+## Implemented IDA Actions
+
+Menu path:
+
+```text
+Edit/PseudoForge/
+  Analyze current function
+  Show current analysis result
+  Analyzed functions...
+  Export cleaned pseudocode
+  Configure LLM rename assist
+  Show settings
+  Advanced/
+    Apply selected renames to IDB
+```
+
+Pseudocode right-click menu:
+
+```text
+PseudoForge/
+  Analyze current function
+  Show current analysis result
+  Analyzed functions...
+  Export cleaned pseudocode
+  Configure LLM rename assist
+  Show settings
+  Advanced/
+    Apply selected renames to IDB
+```
+
+Hotkeys:
+
+```text
+Ctrl+Alt+F        Analyze current function
+Ctrl+Alt+P        Show current analysis result
+Ctrl+Alt+Shift+P  Analyzed functions...
+Ctrl+Alt+Shift+F  Export cleaned pseudocode
+```
+
+## Exported Files
+
+The export action writes a bundle under `pseudoforge_out` next to the IDB when possible.
+Its main purpose is to preserve a reviewable PseudoForge result outside the IDA UI. The bundle is intended for code review, Git diffs, regression samples, audit trails, and tool-to-tool handoff. It is not an apply-renames path and does not modify the IDB.
+
+Analyze/preview also updates an aggregate preview file beside the analyzed input binary:
+
+```text
+<input_binary_stem>.forge
+```
+
+The `.forge` file is sectioned by function EA. Re-analyzing one function replaces only that function section and preserves sections for other functions.
+
+```text
+<function>.cleaned.cpp
+<function>.switch-outline.cpp
+<function>.rename-map.json
+<function>.flow-report.md
+<function>.rule-report.json
+```
+
+`switch-outline.cpp` now includes only single-statement safe bodies. Complex dispatcher paths remain in the normalized original pseudocode.
+
+## Current Validation Run
+
+Commands that passed:
+
+```powershell
+python -B -m unittest discover -s tests -v
+python -B -m compileall .\pseudoforge.py .\ida_pseudoforge .\tests .\tools
+python -B -m json.tool .\ida-plugin.json
+python -B -m json.tool .\ida_pseudoforge\profiles\kernel_api.json
+python -B -m json.tool .\ida_pseudoforge\profiles\kernel_api_overrides.json
+python -B -m json.tool .\ida_pseudoforge\profiles\status_codes.json
+python -B -m json.tool .\ida_pseudoforge\profiles\process_information_class.json
+python -B -m json.tool .\ida_pseudoforge\profiles\system_information_class.json
+python -B .\tools\validate_pseudoforge_rules.py .\ida_pseudoforge\rules\builtin
+python -B .\tools\build_status_codes_profile.py --version 10.0.26100.0 --dry-run --summary
+python -B .\tools\pseudoforge_cli.py --version
+python -B .\tools\release_pseudoforge.py --dry-run
+python -B .\tools\pseudoforge_cli.py .\samples\pseudocode\NtSetSystemInformation_switch_renamed.cpp --out $env:TEMP\pseudoforge_claude_hidden_existing_cli_smoke
+python -B .\tools\pseudoforge_free_cli.py --version
+python -B .\tools\pseudoforge_free_cli.py --help
+python -B .\tools\pseudoforge_free_cli.py .\samples\pseudocode\NtSetSystemInformation_switch_renamed.cpp --out $env:TEMP\pseudoforge_claude_hidden_free_cli_smoke
+git diff --check -- .
+```
+
+Latest unit test count: 189 tests.
+
+Latest headless IDA batch validation, retained as prior full-corpus evidence:
+
+```text
+IDA: IDA Professional 9.0 headless batch
+IDB: local ntoskrnl.exe.i64 test database
+Processed: 30043 functions
+Succeeded: 29982
+Skipped: 61 Hex-Rays decompile-unavailable functions
+PseudoForge failures: 0
+Output: %TEMP%\pseudoforge_ida_batch_full.forge
+Report: %TEMP%\pseudoforge_ida_batch_full.jsonl
+```
+
+GPT-5.5 LLM batch validation history:
+
+```text
+Date: 2026-05-28
+IDA: IDA Professional 9.0
+IDB: D:\bin\os\26200.8457\ntoskrnl.exe.i64
+LLM provider/model: codex_cli / gpt-5.5
+```
+
+Primary 72-function runs:
+
+| Run | Range | First function | Last function | Processed | Succeeded | Skipped | Failed | LLM final status | Review verdicts | Artifacts |
+| --- | --- | --- | --- | ---: | ---: | ---: | ---: | --- | --- | --- |
+| 1 | initial 72 | `0x140018BE8 nullsub_3` | `0x140208120 MiReleaseProcessorFlushList` | 72 | 72 | 0 | 0 | ok=72, fallback=0 | pre-fix review: FAIL=6, REVIEW=20, OK-WARN=29, OK=17 | `%TEMP%\pseudoforge_ida_batch\ntoskrnl_llm_gpt55_full_20260528_180457`; review: `review_72_raw_vs_cleaned.md` |
+| 2 | next 72 | `0x140208168 MiGetMultiplexedVm` | `0x14020F7D0 MiWalkPageTables` | 72 | 72 | 0 | 0 | ok=72 after retry, fallback=0 final | FAIL=0, REVIEW=17, OK-WARN=48, OK=7 | `%TEMP%\pseudoforge_ida_batch\ntoskrnl_llm_gpt55_next72_20260528_200939`; review: `review_next72_raw_vs_cleaned.md`; retry: `%TEMP%\pseudoforge_ida_batch\ntoskrnl_llm_gpt55_milogwsaging_retry_20260528_210446` |
+| 3 | third 72 | `0x14020FAE8 MiWalkPageTablesRecursivelyNoSynch` | `0x14021A324 RtlSparseArrayElementAllocate` | 72 | 72 | 0 | 0 | ok=72, fallback=0 | FAIL=0, REVIEW=20, OK-WARN=41, OK=11 | `%TEMP%\pseudoforge_ida_batch\ntoskrnl_llm_gpt55_next72b_20260528_211637`; review: `review_next72b_raw_vs_cleaned.md` |
+
+Cumulative primary LLM coverage:
+
+```text
+Primary 72-function batches: 3
+Primary functions analyzed: 216
+Final LLM ok after retry: 216
+Final LLM fallback: 0
+Primary failed analyses: 0
+```
+
+Non-LLM all-function CompareDir baseline:
+
+```text
+Output: %TEMP%\pseudoforge_ida_batch\ntoskrnl_compare_full_20260528_174222
+Processed: 30043
+Succeeded: 29982
+Skipped: 61 Hex-Rays decompile-unavailable functions
+Failed: 0
+First function: 0x140018BE8 nullsub_3
+Last function: 0x141008010 KiServiceTablesLocked
+```
+
+Targeted GPT-5.5 validation and rechecks:
+
+| Purpose | Functions | Result | Artifacts |
+| --- | --- | --- | --- |
+| Smoke test | `NtSetSystemInformation` | processed=1, succeeded=1, LLM ok=1 | `%TEMP%\pseudoforge_ida_batch\ntoskrnl_llm_gpt55_smoke_20260528_180337` |
+| Initial 72 issue recheck | TraceLogging wrapper and status-rewrite/style candidates from the first 72-function review | 9 single-function runs, all succeeded, LLM ok | `%TEMP%\pseudoforge_ida_batch\ntoskrnl_llm_gpt55_fixed_20260528_191940` |
+| Style/status follow-up | `MiReservePageFileSpace`, `MiDeleteCachedSubsection`, `MiEntireSubsectionIsPurged` | 3 single-function runs, all succeeded, LLM ok | `%TEMP%\pseudoforge_ida_batch\ntoskrnl_llm_gpt55_style_20260528_194645` |
+| Status/style final spot check | `MiDeleteCachedSubsection` | processed=1, succeeded=1, LLM ok=1 | `%TEMP%\pseudoforge_ida_batch\ntoskrnl_llm_gpt55_status_style_20260528_195648` |
+| Second 72 timeout retry | `MiLogWsAging` | processed=1, succeeded=1, LLM ok=1 with longer timeout | `%TEMP%\pseudoforge_ida_batch\ntoskrnl_llm_gpt55_milogwsaging_retry_20260528_210446` |
+| Generic argument fix recheck | `MiCountSharedPages`, `MiSetProtectionOnSection`, `MiProtectPrivateMemory`, `MiCreateSlabEntry` | processed=4, succeeded=4, LLM ok=4, generic argument placeholders in cleaned bodies: none | `%TEMP%\pseudoforge_ida_batch\ntoskrnl_llm_gpt55_genericfix_recheck_20260528_222221` |
+| Halp allocator rename/tail recheck | `HalpAllocPhysicalMemoryInternal` at `0x140C66648` from `D:\bin\os\26200.8457\ntoskrnl.exe.i64` | processed=1, succeeded=1, LLM ok=1; `LABEL_36` classified as `success_accounting_return_tail`; weak `a1`/`a4` argument renames and `v29` saved-copy rename were skipped | `%TEMP%\pseudoforge_ida_batch\halp_alloc_idb_copy_20260528_231151\run` |
+
+The first 72-function review report is retained as pre-fix evidence. Its six FAIL findings were the issues that drove the later switch-recovery, status-literal, style, and generic-argument fixes. Use the targeted recheck artifacts and the current unit suite as the post-fix validation record.
+
+Historical regression checks that passed after the LLM argument and label-tail fixes:
+
+```powershell
+pytest -q
+python -m compileall ida_pseudoforge
+rg -n "<internal-token-pattern>" ida_pseudoforge/core/validation.py ida_pseudoforge/core/cleanup_rewriter.py tests/test_core_engine.py pseudoforge_implementation_status.md
+```
+
+Historical results from that regression pass:
+
+```text
+pytest: 99 passed
+compileall: passed
+sensitive internal token scan: clean
+HalpAllocPhysicalMemoryInternal IDB-copy recheck: processed=1, succeeded=1, failed=0, LLM ok=1
+kernel-pattern ASCII scan: clean
+git diff --check: passed with CRLF normalization warnings only
+```
+
+Kernel-pattern driver corpus validation:
+
+```text
+sample: samples/kernel_pattern_driver
+build: .\samples\kernel_pattern_driver\tools\build.ps1 -Configuration Release
+build: .\samples\kernel_pattern_driver\tools\build.ps1 -Configuration Debug
+result: PfKernelPattern.sys and PfKernelPatternTool.exe built successfully for Release|x64 and Debug|x64
+signing: WDK TestSign reported "Successfully signed" for both PfKernelPattern.sys outputs
+live load: not run
+```
+
+DriverEntry cleanup regression validation:
+
+```text
+python -B -m unittest tests.test_core_engine.CoreEngineTests.test_callback_registration_toggle_rewrites_ob_operation_registration tests.test_core_engine.CoreEngineTests.test_registry_callback_registration_probe_gets_cm_semantics tests.test_core_engine.CoreEngineTests.test_memory_manager_probe_gets_mm_semantics tests.test_core_engine.CoreEngineTests.test_zw_api_probe_gets_deterministic_names_and_status_checks tests.test_core_engine.CoreEngineTests.test_driver_entry_device_extension_semantics tests.test_core_engine.CoreEngineTests.test_ioctl_switch_case_labels_decode_ctl_code_bitfields tests.test_core_engine.CoreEngineTests.test_kernel_api_profile_rewrites_pool_flags_and_tags -v: 7 tests OK
+python -B -m unittest tests.test_core_engine.CoreEngineTests.test_driver_entry_device_extension_semantics tests.test_core_engine.CoreEngineTests.test_driver_entry_extension_rewrite_requires_dword_scaled_offsets -v: 2 tests OK
+python -B -m unittest tests.test_core_engine.CoreEngineTests.test_ioctl_switch_case_labels_decode_ctl_code_bitfields tests.test_core_engine.CoreEngineTests.test_ioctl_stack_location_rewrite_does_not_require_device_extension_use tests.test_core_engine.CoreEngineTests.test_irp_stack_location_union_arm_is_not_forced_without_ioctl_evidence tests.test_core_engine.CoreEngineTests.test_irp_stack_location_roles_require_driver_dispatch_evidence tests.test_core_engine.CoreEngineTests.test_llm_ioctl_like_names_do_not_force_irp_union_arm_without_dispatch_evidence tests.test_core_engine.CoreEngineTests.test_master_irp_alias_rewrite_requires_all_buffered_ioctl_cases tests.test_core_engine.CoreEngineTests.test_master_irp_alias_rewrite_requires_device_control_stack_evidence tests.test_core_engine.CoreEngineTests.test_ioctl_ctl_code_decode_handles_methods_and_access_bits tests.test_core_engine.CoreEngineTests.test_ioctl_case_labels_decode_hexrays_integer_suffixes -v: 9 tests OK
+python -B -m unittest discover -s tests -v: 171 tests OK
+python -B -m compileall .\pseudoforge.py .\ida_pseudoforge .\tests .\tools: passed
+python -m json.tool .\ida_pseudoforge\profiles\kernel_api_overrides.json > $null: passed
+git diff --check -- .: passed with CRLF normalization warnings only
+.\samples\kernel_pattern_driver\tools\build.ps1 -Configuration Release: passed, PfKernelPattern.sys signed
+MSBuild .\samples\kernel_pattern_driver\PfKernelPattern.sln /m:1 /p:Configuration=Debug /p:Platform=x64: passed after retrying a transient WDK ApiValidator temp-file lock
+```
+
+Claude CLI login bridge validation:
+
+```text
+python -B -m unittest discover -s tests -v: 103 tests OK
+python -B -m compileall .\pseudoforge.py .\ida_pseudoforge .\tests .\tools: passed
+python -B .\tools\validate_pseudoforge_rules.py .\ida_pseudoforge\rules\builtin: 2 rule files OK
+python -B .\tools\pseudoforge_cli.py .\samples\pseudocode\NtSetSystemInformation_switch_renamed.cpp --llm-renames --llm-provider claude_login_via_claude_cli --llm-command "python .\tools\empty_llm_rename_provider.py" --out %TEMP%\pseudoforge_claude_login_provider_smoke: succeeded
+claude auth --help: confirms auth login command is available
+document language scan: clean
+git diff --check -- .: passed with CRLF normalization warnings only
+```
+
+Maintainability hardening update:
+
+```text
+implemented:
+- WDK kernel API profile parsing now strips comments and preprocessor lines from the function-declaration scan path.
+- Bogus prose-derived function metadata such as Iprtrmib.h "Manager" is rejected and removed from functions and symbol indices.
+- Integer macro expression evaluation uses a small AST evaluator instead of eval().
+- CLI LLM providers execute command templates as argv with shell=False by default.
+- Raw shell execution is available only with an explicit shell: or raw-shell: command-template prefix.
+- Codex model discovery now invokes ["codex", "debug", "models"] with shell=False.
+- Pattern-based local rename rules were extracted from lvar_analysis.py into core/pattern_renames.py.
+- New focused tests were added for kernel API profile building and LLM CLI provider execution.
+
+deferred:
+- The historical test_core_engine.py monolith still contains existing broad regression coverage.
+- render.py, ida/actions.py, and ida/ui_preview.py remain candidates for later scoped extraction; they were not broadly rewritten in this pass to avoid behavior drift.
+```
+
+IDA Free offline CLI update:
+
+```text
+implemented:
+- IDA Free remains unsupported for the interactive plugin path because that path requires IDAPython and local Hex-Rays pseudocode APIs.
+- tools/pseudoforge_free_cli.py provides a Python-only offline workflow for pseudocode copied or saved from IDA Free cloud decompiler output.
+- The IDA Free CLI extracts exactly one complete function per input file and fails closed for missing or ambiguous multiple functions.
+- The IDA Free CLI writes cleaned pseudocode, raw pseudocode, raw-vs-cleaned diff, rename map, flow report, warnings JSON, rule report, per-function summary JSON, and a run manifest.
+- Project-local rules are supported through --project-root, and additional rule directories are supported through --rules.
+- Optional LLM rename assist is available through --llm and uses the existing offline provider system with deterministic fallback on provider failure.
+- tools/pseudoforge_free_console.py owns progress and final-summary rendering so the CLI adapter stays focused on parsing and IO orchestration.
+- --help is served before analysis dependencies are loaded, while real analysis still fails closed if IDA-only modules are present.
+- Text console output prints incremental progress by default, while --no-progress suppresses incremental progress and keeps the final summary.
+- Text summaries distinguish complete, partial, and failed runs.
+- JSON console output keeps stdout machine-readable and sends progress to stderr by default.
+- The path does not import IDA-only modules, does not use IDAPython or local Hex-Rays APIs, and never modifies an IDB.
+- README IDA Free CLI usage screenshot was refreshed to show the current progress and final-summary output.
+
+unsupported:
+- No IDA Free menu integration.
+- No apply-renames action.
+- No direct cloud decompiler API integration.
+- No multi-function splitting in a single pasted file in this first slice.
+```
+
+Interactive plugin safety update:
+
+```text
+implemented:
+- Added a plugin analysis session model for the interactive IDA path.
+- Replaced direct LAST_* state use with a session store that carries target path, function EA/name, fingerprint, capture, plan, and .forge output.
+- Analyze, export, and apply now share a conservative background coordination group so overlapping actions cannot race shared plugin state.
+- Apply-selected-renames refuses stale sessions when the current IDA function no longer matches the analyzed function.
+- Apply-selected-renames revalidates selected candidates immediately before IDB write and only lets explicit arg/lvar rename candidates reach ida_hexrays.rename_lvar().
+- Apply preflight rejects unselected, missing, non-apply-safe, non-arg/lvar, invalid identifier, colliding, and duplicate-target candidates.
+- Session path identity now normalizes Windows path case and separators to avoid false stale-session refusals.
+- Plugin action registration and menu attachment are routed through ActionRegistry.
+- Preview popup actions now have a cleanup hook that plugin term() calls during unload/reload.
+- LLM config dialog code is isolated from actions.py, and model-discovery exceptions use static fallback choices without saving corrupt config.
+- Export purpose is documented as a durable review/regression artifact path, separate from IDB rename application.
+- Removed the top-level full aggregate `.forge` preview action and the direct full `.forge` open popup action; `Show current analysis result` is now the primary preview action and `Analyzed functions...` is available from the top-level menu and pseudocode context menu.
+- Removed per-function dynamic popup entries in favor of the `Analyzed functions...` chooser to avoid huge context menus on large `.forge` files.
+- Interactive plugin loading plus capture, export, and action behavior were validated in the Hex-Rays pseudocode view.
+- Added focused plugin safety tests for session identity, stale apply refusal, apply preflight, IDB write gating, task coordination, action lifecycle, preview cleanup, Windows path identity normalization, and LLM config failure handling.
+
+deferred:
+- Full non-blocking LLM model discovery UI refresh is still deferred; current behavior keeps the existing dialog flow with safer fallback handling.
+- Ctree identity tracking is still incomplete; apply continues to call ida_hexrays.rename_lvar(function_ea, old, new) after the new session and preflight gates pass.
+- Interactive export does not yet include the full IDA Free CLI artifact set such as raw pseudocode, raw-vs-cleaned diff, and summary JSON.
+```
+
+Next continuation point:
+
+```text
+Next batch should continue after 0x14021A324 RtlSparseArrayElementAllocate.
+Suggested StartEa: 0x14021A325
+Keep LLM path enabled with -LlmProvider codex_cli -LlmModel gpt-5.5.
+```
+
+## Known Limits
+
+1. Switch body reconstruction is conservative.
+   - It can recover top-level dispatcher case values and single-return case bodies.
+   - Deep nested or heavily shared branch bodies still require manual review.
+
+2. LLM-assisted rename is optional and disabled by default.
+   - Current default plan remains deterministic and validator-gated.
+   - HTTP providers use OpenAI-compatible chat completions endpoints.
+   - CLI providers run a configured local command with prompt on stdin.
+   - CLI provider custom command templates must include `{model}` if the selected model should be passed to the command.
+   - `chatgpt_oauth_via_codex_cli` is implemented as a Codex CLI auth bridge and requires `codex login` outside IDA once.
+   - `claude_login_via_claude_cli` is implemented as a Claude CLI auth bridge and requires `claude auth login` outside IDA once.
+   - PseudoForge does not run browser login inside IDA; old `chatgpt_oauth` is not accepted as a provider ID.
+   - IDA uses `Edit/PseudoForge/Configure LLM rename assist` and stores settings under the IDA user directory.
+
+3. IDA-side preview uses a simple text preview window.
+   - A richer dockable side-by-side panel is still pending.
+
+4. Ctree identity tracking is not complete.
+   - IDA apply currently uses `ida_hexrays.rename_lvar(function_ea, old, new)`.
+
+## Next Steps
+
+1. Extend deterministic rules matching engine beyond v1 with `call_arg_rewrite`, `text_rewrite`, and `flow` phases.
+2. Improve switch body reconstruction for shared/fallthrough branch paths.
+3. Add a richer dockable side-by-side preview panel.
+4. Add ctree identity tracking for safer local variable rename application.
+5. Align interactive export artifacts with the IDA Free CLI output set where useful.
+6. Expand semantic overlays for more WDK APIs beyond the currently known pool/list/resource cases.

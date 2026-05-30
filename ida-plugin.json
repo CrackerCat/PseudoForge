@@ -1,0 +1,30 @@
+{
+  "IDAMetadataDescriptorVersion": 1,
+  "plugin": {
+    "name": "pseudoforge",
+    "entryPoint": "pseudoforge.py",
+    "version": "0.1.0",
+    "idaVersions": ">=7.6",
+    "description": "PseudoForge refactors Hex-Rays pseudocode into safer rename plans and readable exported pseudocode.",
+    "license": "Private",
+    "categories": [
+      "decompilation",
+      "api-scripting-and-automation",
+      "collaboration-and-productivity"
+    ],
+    "pythonDependencies": [],
+    "urls": {},
+    "authors": [
+      {
+        "name": "kernullist"
+      }
+    ],
+    "keywords": [
+      "hex-rays",
+      "pseudocode",
+      "reverse-engineering",
+      "variable-renaming",
+      "control-flow"
+    ]
+  }
+}

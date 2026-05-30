@@ -1,0 +1,68 @@
+{
+  "schema_version": 1,
+  "description": "Manual kernel API metadata overlays for private wrapper names and deterministic parameter semantics.",
+  "function_aliases": {
+    "ObpReferenceObjectByHandleWithTag": "ObReferenceObjectByHandleWithTag"
+  },
+  "prefix_alias_rules": [
+    {
+      "private_prefix": "Obp",
+      "public_prefix": "Ob"
+    },
+    {
+      "private_prefix": "Psp",
+      "public_prefix": "Ps"
+    },
+    {
+      "private_prefix": "Iop",
+      "public_prefix": "Io"
+    },
+    {
+      "private_prefix": "Mmp",
+      "public_prefix": "Mm"
+    },
+    {
+      "private_prefix": "Sep",
+      "public_prefix": "Se"
+    },
+    {
+      "private_prefix": "Pop",
+      "public_prefix": "Po"
+    },
+    {
+      "private_prefix": "Cmp",
+      "public_prefix": "Cm"
+    },
+    {
+      "private_prefix": "Rtlp",
+      "public_prefix": "Rtl"
+    },
+    {
+      "private_prefix": "FsRtlp",
+      "public_prefix": "FsRtl"
+    },
+    {
+      "private_prefix": "Etwp",
+      "public_prefix": "Etw"
+    }
+  ],
+  "parameter_overrides": {
+    "IoCreateDevice": {
+      "4": {
+        "kind": "flags",
+        "enum": "FILE_DEVICE_CHARACTERISTICS"
+      }
+    },
+    "ObReferenceObjectByHandleWithTag": {
+      "4": {
+        "kind": "pool_tag"
+      }
+    },
+    "MmCopyMemory": {
+      "3": {
+        "kind": "flags",
+        "enum": "MM_COPY_MEMORY_FLAGS"
+      }
+    }
+  }
+}

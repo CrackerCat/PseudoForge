@@ -1,0 +1,202 @@
+from __future__ import annotations
+
+from typing import Any
+
+from ida_pseudoforge.core.capture import capture_from_pseudocode
+from ida_pseudoforge.core.plan_schema import FunctionCapture, LocalVariable
+from ida_pseudoforge.ida.thread_helpers import run_on_main_thread
+from ida_pseudoforge.logging import log_checkpoint, log_event, trace_scope
+
+try:
+    import ida_funcs  # type: ignore
+    import ida_hexrays  # type: ignore
+    import ida_kernwin  # type: ignore
+    import idaapi  # type: ignore
+except Exception:
+    ida_funcs = None
+    ida_hexrays = None
+    ida_kernwin = None
+    idaapi = None
+
+
+def hexrays_available() -> bool:
+    if ida_hexrays is None:
+        return False
+
+    def do_init() -> bool:
+        try:
+            return bool(ida_hexrays.init_hexrays_plugin())
+        except Exception:
+            return False
+
+    return bool(run_on_main_thread(do_init, write=False))
+
+
+def capture_current_function() -> tuple[FunctionCapture, Any]:
+    if ida_kernwin is None or ida_hexrays is None or ida_funcs is None:
+        raise RuntimeError("IDA Hex-Rays APIs are not available")
+
+    def do_capture() -> tuple[FunctionCapture, Any]:
+        log_checkpoint("decompiler.capture.do_capture.before")
+        current = _capture_from_current_pseudocode_view()
+        if current is not None:
+            log_checkpoint("decompiler.capture.do_capture.after", source="vdui")
+            return current
+
+        ea = ida_kernwin.get_screen_ea()
+        if idaapi is not None and ea == idaapi.BADADDR:
+            raise RuntimeError("No current EA")
+
+        func = ida_funcs.get_func(ea)
+        if func is None:
+            raise RuntimeError(f"EA 0x{ea:X} is not inside a function")
+
+        log_event("capture.decompile.start ea=0x%X" % int(func.start_ea))
+        with trace_scope("decompiler.decompile", ea="0x%X" % int(func.start_ea)):
+            cfunc = ida_hexrays.decompile(func)
+        if cfunc is None:
+            raise RuntimeError(f"Hex-Rays failed to decompile function at 0x{func.start_ea:X}")
+        log_event("capture.decompile.done ea=0x%X" % int(func.start_ea))
+
+        with trace_scope("decompiler.extract_text", ea="0x%X" % int(func.start_ea)):
+            pseudocode = _cfunc_text(cfunc)
+        name = ida_funcs.get_func_name(func.start_ea) or ""
+        capture = capture_from_pseudocode(pseudocode, name=name, ea=int(func.start_ea))
+        with trace_scope("decompiler.extract_lvars", ea="0x%X" % int(func.start_ea)):
+            capture.lvars = merge_lvars_from_text_and_cfunc(capture.lvars, _extract_lvars_from_cfunc(cfunc))
+        log_checkpoint("decompiler.capture.do_capture.after", source="decompile", function=name, ea="0x%X" % int(func.start_ea))
+        return capture, cfunc
+
+    with trace_scope("decompiler.capture.run_on_main_thread"):
+        return run_on_main_thread(do_capture, write=False)
+
+
+def _capture_from_current_pseudocode_view() -> tuple[FunctionCapture, Any] | None:
+    get_widget_vdui = getattr(ida_hexrays, "get_widget_vdui", None)
+    get_current_widget = getattr(ida_kernwin, "get_current_widget", None)
+    if not callable(get_widget_vdui) or not callable(get_current_widget):
+        return None
+
+    try:
+        widget = get_current_widget()
+        vdui = get_widget_vdui(widget)
+        cfunc = getattr(vdui, "cfunc", None)
+    except Exception:
+        return None
+    if cfunc is None:
+        return None
+
+    ea = _cfunc_entry_ea(cfunc)
+    if ea is None:
+        return None
+
+    name = ida_funcs.get_func_name(ea) or ""
+    pseudocode = _cfunc_text(cfunc)
+    capture = capture_from_pseudocode(pseudocode, name=name, ea=int(ea))
+    capture.lvars = merge_lvars_from_text_and_cfunc(capture.lvars, _extract_lvars_from_cfunc(cfunc))
+    log_event("capture.vdui.reuse function=\"%s\" ea=0x%X" % (_ascii_for_log(name), int(ea)))
+    return capture, cfunc
+
+
+def _cfunc_entry_ea(cfunc: Any) -> int | None:
+    for attr in ("entry_ea", "entry"):
+        value = getattr(cfunc, attr, None)
+        if value is None:
+            continue
+        try:
+            return int(value)
+        except Exception:
+            pass
+    try:
+        ea = ida_kernwin.get_screen_ea()
+        func = ida_funcs.get_func(ea)
+        if func is not None:
+            return int(func.start_ea)
+    except Exception:
+        pass
+    return None
+
+
+def _cfunc_text(cfunc: Any) -> str:
+    lines = []
+    try:
+        pseudocode = cfunc.get_pseudocode()
+        for line in pseudocode:
+            raw = getattr(line, "line", str(line))
+            if idaapi is not None:
+                try:
+                    raw = idaapi.tag_remove(raw)
+                except Exception:
+                    pass
+            lines.append(str(raw))
+    except Exception:
+        return str(cfunc)
+    return "\n".join(lines)
+
+
+def _extract_lvars_from_cfunc(cfunc: Any) -> list[LocalVariable]:
+    result = []
+    try:
+        lvars = list(cfunc.lvars)
+    except Exception:
+        return result
+
+    for index, lvar in enumerate(lvars):
+        name = str(getattr(lvar, "name", "") or "")
+        if not name:
+            continue
+        type_text = ""
+        for attr in ("type", "tif"):
+            value = getattr(lvar, attr, None)
+            if callable(value):
+                try:
+                    type_text = str(value())
+                    break
+                except Exception:
+                    pass
+            elif value is not None:
+                type_text = str(value)
+                break
+        is_arg = False
+        method = getattr(lvar, "is_arg_var", None)
+        if callable(method):
+            try:
+                is_arg = bool(method())
+            except Exception:
+                is_arg = False
+        result.append(LocalVariable(name=name, type=type_text, is_arg=is_arg, index=index))
+    return result
+
+
+def merge_lvars_from_text_and_cfunc(
+    text_lvars: list[LocalVariable],
+    cfunc_lvars: list[LocalVariable],
+) -> list[LocalVariable]:
+    result: list[LocalVariable] = []
+    by_name: dict[str, LocalVariable] = {}
+
+    for var in text_lvars + cfunc_lvars:
+        if not var.name:
+            continue
+        existing = by_name.get(var.name)
+        if existing is None:
+            by_name[var.name] = LocalVariable(
+                name=var.name,
+                type=var.type,
+                is_arg=var.is_arg,
+                index=var.index,
+            )
+            result.append(by_name[var.name])
+            continue
+        if not existing.type and var.type:
+            existing.type = var.type
+        if var.is_arg:
+            existing.is_arg = True
+        if existing.index < 0 and var.index >= 0:
+            existing.index = var.index
+
+    return result
+
+
+def _ascii_for_log(value: str) -> str:
+    return value.encode("ascii", errors="replace").decode("ascii")

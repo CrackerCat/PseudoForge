@@ -1,0 +1,836 @@
+from __future__ import annotations
+
+import ctypes
+import ctypes.wintypes as wintypes
+import os
+import re
+import tempfile
+import time
+from pathlib import Path
+from typing import Callable
+
+from ida_pseudoforge.core.forge_store import ForgeFunctionSection, parse_forge_function_sections
+from ida_pseudoforge.core.plan_schema import CleanPlan
+from ida_pseudoforge.core.render import _finalize_rendered_c_like_text
+from ida_pseudoforge.logging import append_bounded_log_line, log_checkpoint, log_event
+
+try:
+    import ida_kernwin  # type: ignore
+    import idaapi  # type: ignore
+except Exception:
+    ida_kernwin = None
+    idaapi = None
+
+try:
+    import ida_lines  # type: ignore
+except Exception:
+    ida_lines = None
+
+
+_VIEWERS: dict[str, "_ForgeTextViewer"] = {}
+_ACTIVE_VIEWER: "_ForgeTextViewer | None" = None
+_MAX_PREVIEW_CHARS = 512 * 1024
+_MAX_PREVIEW_LINES = 12000
+_MAX_HIGHLIGHT_CHARS = 256 * 1024
+_MAX_HIGHLIGHT_LINES = 8000
+_DISABLE_HIGHLIGHT_ENV = "PSEUDOFORGE_DISABLE_PREVIEW_HIGHLIGHT"
+_ACTIONS_REGISTERED = False
+_COPY_ACTION = "pseudoforge:preview_copy_all"
+_SAVE_ACTION = "pseudoforge:preview_save_as"
+_FUNCTIONS_ACTION = "pseudoforge:preview_functions"
+_COPY_RETRY_COUNT = 20
+_COPY_RETRY_DELAY_SECONDS = 0.05
+_C_KEYWORDS = {
+    "break",
+    "case",
+    "continue",
+    "default",
+    "do",
+    "else",
+    "for",
+    "goto",
+    "if",
+    "return",
+    "sizeof",
+    "switch",
+    "while",
+}
+_C_TYPE_WORDS = {
+    "BOOLEAN",
+    "BYTE",
+    "CHAR",
+    "DWORD",
+    "HANDLE",
+    "INT",
+    "LIST_ENTRY",
+    "LONG",
+    "LONGLONG",
+    "NTSTATUS",
+    "PCHAR",
+    "PCSTR",
+    "PCWSTR",
+    "PVOID",
+    "SIZE_T",
+    "UCHAR",
+    "UINT",
+    "ULONG",
+    "ULONGLONG",
+    "USHORT",
+    "VOID",
+    "WCHAR",
+    "WORD",
+    "_BYTE",
+    "_DWORD",
+    "_QWORD",
+    "__fastcall",
+    "__int16",
+    "__int32",
+    "__int64",
+    "__int8",
+    "char",
+    "const",
+    "enum",
+    "int",
+    "long",
+    "short",
+    "signed",
+    "static",
+    "struct",
+    "typedef",
+    "union",
+    "unsigned",
+    "void",
+    "volatile",
+}
+_C_CONSTANT_WORDS = {
+    "FALSE",
+    "NULL",
+    "TRUE",
+    "false",
+    "nullptr",
+    "true",
+}
+_TOKEN_RE = re.compile(
+    r"\"(?:\\.|[^\"\\])*\""
+    r"|\'(?:\\.|[^\'\\])*\'"
+    r"|0[xX][0-9A-Fa-f]+(?:[uUlL]*)"
+    r"|\b\d+(?:[uUlL]*)\b"
+    r"|[A-Za-z_][A-Za-z0-9_]*"
+)
+_Colorizer = Callable[[str, str], str]
+
+
+def choose_renames(plan: CleanPlan) -> list[str]:
+    items = [rename for rename in plan.renames if rename.apply and rename.kind in {"arg", "lvar"}]
+    if ida_kernwin is None:
+        return [rename.old for rename in items]
+
+    class RenameChooser(ida_kernwin.Choose):
+        def __init__(self):
+            super().__init__(
+                "PseudoForge rename plan",
+                [
+                    ["Old", 18],
+                    ["New", 28],
+                    ["Kind", 8],
+                    ["Conf", 8],
+                    ["Evidence", 64],
+                ],
+                flags=ida_kernwin.Choose.CH_MULTI,
+            )
+            self.selected_indices: list[int] = []
+
+        def OnGetLine(self, index):
+            rename = items[index]
+            return [
+                rename.old,
+                rename.new,
+                rename.kind,
+                f"{rename.confidence:.2f}",
+                rename.evidence,
+            ]
+
+        def OnGetSize(self):
+            return len(items)
+
+        def OnSelectionChange(self, selected):
+            self.selected_indices = list(selected or [])
+
+    chooser = RenameChooser()
+    if chooser.Show(modal=True) < 0:
+        return []
+    if not chooser.selected_indices:
+        return []
+    return [items[index].old for index in chooser.selected_indices]
+
+
+def show_text_view(
+    title: str,
+    text: str,
+    source_path: str | Path | None = None,
+    suggested_filename: str | None = None,
+    copy_from_source: bool = True,
+    target_stem: str | None = None,
+) -> None:
+    text = _finalize_rendered_c_like_text(text)
+    _trace_checkpoint("show_text_view.enter", title=title, chars=len(text), source=source_path)
+    if ida_kernwin is None:
+        _trace_checkpoint("show_text_view.no_ida", title=title)
+        print(text)
+        return
+
+    _ensure_preview_actions()
+    display_text = _bounded_preview_text(text, source_path)
+    viewer = _VIEWERS.get(title)
+    if viewer is None:
+        _trace_checkpoint("simple_viewer.new.before", title=title)
+        viewer = _ForgeTextViewer(title)
+        if not viewer.Create(title):
+            raise RuntimeError("Failed to create PseudoForge preview viewer")
+        _VIEWERS[title] = viewer
+        _trace_checkpoint("simple_viewer.new.after", title=title)
+
+    _trace_checkpoint("simple_viewer.update.before", title=title, chars=len(display_text))
+    viewer.update_content(
+        display_text,
+        text,
+        source_path,
+        suggested_filename=suggested_filename,
+        copy_from_source=copy_from_source,
+        target_stem=target_stem,
+    )
+    _trace_checkpoint("simple_viewer.update.after", title=title)
+    _trace_checkpoint("simple_viewer.show.before", title=title)
+    viewer.Show()
+    _trace_checkpoint("simple_viewer.show.after", title=title)
+    log_event("preview.show title=\"%s\" chars=%d backend=simplecustviewer" % (_ascii_for_log(title), len(text)))
+    _trace_checkpoint("show_text_view.exit", title=title, backend="simplecustviewer")
+
+
+def info(message: str) -> None:
+    log_event("info %s" % _single_line_for_log(message))
+    if ida_kernwin is not None:
+        try:
+            ida_kernwin.info(message)
+            return
+        except Exception:
+            pass
+    print(message)
+
+
+def warning(message: str) -> None:
+    log_event("warning %s" % _single_line_for_log(message))
+    if ida_kernwin is not None:
+        try:
+            ida_kernwin.warning(message)
+            return
+        except Exception:
+            pass
+    print(message)
+
+
+class _ForgeTextViewer(ida_kernwin.simplecustviewer_t if ida_kernwin else object):
+    def __init__(self, title: str) -> None:
+        super().__init__()
+        self.title = title
+        self.full_text = ""
+        self.source_path: Path | None = None
+        self.suggested_filename = ""
+        self.copy_from_source = True
+        self.target_stem = ""
+
+    def update_content(
+        self,
+        display_text: str,
+        full_text: str,
+        source_path: str | Path | None,
+        suggested_filename: str | None = None,
+        copy_from_source: bool = True,
+        target_stem: str | None = None,
+    ) -> None:
+        self.full_text = full_text
+        self.source_path = Path(source_path) if source_path else self.source_path
+        self.suggested_filename = suggested_filename or self.suggested_filename
+        self.copy_from_source = copy_from_source
+        self.target_stem = target_stem or self.target_stem
+        self.ClearLines()
+        lines = display_text.splitlines() or [""]
+        _trace_checkpoint("simple_viewer.highlight.before", title=self.title, lines=len(lines))
+        highlighted_lines = _highlight_preview_lines(lines)
+        _trace_checkpoint("simple_viewer.highlight.after", title=self.title, lines=len(highlighted_lines))
+        _trace_checkpoint("simple_viewer.add_lines.before", title=self.title, lines=len(highlighted_lines))
+        for line in highlighted_lines:
+            self.AddLine(line)
+        _trace_checkpoint("simple_viewer.add_lines.after", title=self.title)
+        _trace_checkpoint("simple_viewer.refresh.before", title=self.title)
+        self.Refresh()
+        _trace_checkpoint("simple_viewer.refresh.after", title=self.title)
+
+    def OnPopup(self, form, popup_handle):
+        global _ACTIVE_VIEWER
+        _ACTIVE_VIEWER = self
+        try:
+            idaapi.attach_action_to_popup(form, popup_handle, _COPY_ACTION, "PseudoForge/")
+            idaapi.attach_action_to_popup(form, popup_handle, _SAVE_ACTION, "PseudoForge/")
+            idaapi.attach_action_to_popup(form, popup_handle, _FUNCTIONS_ACTION, "PseudoForge/")
+        except Exception as exc:
+            log_checkpoint("preview.popup.failed", error=str(exc))
+        return True
+
+
+class _PreviewActionHandler(idaapi.action_handler_t if idaapi else object):
+    def __init__(self, callback):
+        super().__init__()
+        self.callback = callback
+
+    def activate(self, ctx):
+        _trace_checkpoint("preview_action.activate.before", callback=getattr(self.callback, "__name__", "callback"))
+        viewer = _active_viewer()
+        if viewer is None:
+            _trace_checkpoint("preview_action.activate.no_viewer")
+            return 1
+        self.callback(viewer)
+        _trace_checkpoint("preview_action.activate.after", title=viewer.title)
+        return 1
+
+    def update(self, ctx):
+        return idaapi.AST_ENABLE_ALWAYS if idaapi else 1
+
+
+def _copy_viewer_all(viewer: _ForgeTextViewer) -> None:
+    _trace_checkpoint("copy_all.enter", title=viewer.title, source=viewer.source_path)
+    try:
+        text, source_path = _copy_source_text(viewer)
+        _trace_checkpoint("copy_all.api.before", title=viewer.title, chars=len(text), source=source_path)
+        byte_count = _set_windows_clipboard_text(text)
+        _write_copy_status("ok api chars=%d bytes=%d source=%s" % (len(text), byte_count, source_path))
+        _trace_checkpoint("copy_all.api.after", title=viewer.title, chars=len(text), bytes=byte_count)
+    except Exception as exc:
+        _write_copy_status("failed api %s" % _ascii_for_log(str(exc)))
+        _trace_checkpoint("copy_all.failed", title=viewer.title, error=str(exc))
+        warning("PseudoForge Copy all failed: %s" % exc)
+
+
+def _save_viewer_as(viewer: _ForgeTextViewer) -> None:
+    default_name = viewer.suggested_filename or _safe_preview_filename(viewer.title)
+    path = ida_kernwin.ask_file(True, default_name, "Save PseudoForge preview")
+    if not path:
+        return
+    if viewer.copy_from_source and viewer.source_path is not None and viewer.source_path.exists():
+        text = viewer.source_path.read_text(encoding="utf-8", errors="replace")
+    else:
+        text = viewer.full_text
+    text = _finalize_rendered_c_like_text(text)
+    Path(path).write_text(text, encoding="utf-8")
+    log_event("preview.save title=\"%s\" path=\"%s\"" % (_ascii_for_log(viewer.title), _ascii_for_log(path)))
+
+
+def _show_viewer_functions(viewer: _ForgeTextViewer) -> None:
+    show_analyzed_functions_from_text(
+        viewer.full_text,
+        source_path=viewer.source_path,
+        target_stem=_viewer_target_stem(viewer),
+        source_title=viewer.title,
+    )
+
+
+def show_analyzed_functions_from_text(
+    forge_text: str,
+    source_path: str | Path | None = None,
+    target_stem: str | None = None,
+    source_title: str = "PseudoForge analyzed functions",
+) -> bool:
+    text = _finalize_rendered_c_like_text(forge_text)
+    if source_path is not None:
+        path = Path(source_path)
+        if path.exists():
+            try:
+                text = path.read_text(encoding="utf-8", errors="replace")
+            except Exception:
+                text = _finalize_rendered_c_like_text(forge_text)
+
+    sections = parse_forge_function_sections(text)
+    _trace_checkpoint("preview.functions.enter", title=source_title, count=len(sections))
+    if not sections:
+        warning("PseudoForge has no cached analyzed function sections.")
+        return False
+
+    selected = _choose_forge_function(sections)
+    if selected is None:
+        _trace_checkpoint("preview.functions.cancelled", title=source_title)
+        return False
+
+    resolved_target_stem = target_stem or _source_target_stem(source_path)
+    title = "PseudoForge: %s!%s 0x%X" % (resolved_target_stem, selected.name, selected.ea)
+    show_text_view(
+        title,
+        selected.text,
+        source_path=source_path,
+        suggested_filename=build_save_as_filename(resolved_target_stem, selected.name, selected.ea),
+        copy_from_source=False,
+        target_stem=resolved_target_stem,
+    )
+    _trace_checkpoint(
+        "preview.functions.opened",
+        title=source_title,
+        function=selected.name,
+        ea="0x%X" % selected.ea,
+    )
+    return True
+
+
+def _choose_forge_function(sections: list[ForgeFunctionSection]) -> ForgeFunctionSection | None:
+    if ida_kernwin is None:
+        return sections[0] if sections else None
+
+    class FunctionChooser(ida_kernwin.Choose):
+        def __init__(self):
+            super().__init__(
+                "PseudoForge analyzed functions",
+                [
+                    ["EA", 18],
+                    ["Name", 48],
+                    ["Fingerprint", 32],
+                ],
+                flags=0,
+            )
+
+        def OnGetLine(self, index):
+            section = sections[index]
+            return [
+                "0x%X" % section.ea,
+                section.name,
+                section.fingerprint[:32],
+            ]
+
+        def OnGetSize(self):
+            return len(sections)
+
+    chooser = FunctionChooser()
+    selected_index = chooser.Show(modal=True)
+    if selected_index < 0 or selected_index >= len(sections):
+        return None
+    return sections[selected_index]
+
+
+def _viewer_target_stem(viewer: _ForgeTextViewer) -> str:
+    if viewer.target_stem:
+        return viewer.target_stem
+    return _source_target_stem(viewer.source_path)
+
+
+def _source_target_stem(source_path: str | Path | None) -> str:
+    if source_path is not None:
+        return Path(source_path).stem or "target"
+    return "target"
+
+
+def _ensure_preview_actions() -> None:
+    global _ACTIONS_REGISTERED
+    if _ACTIONS_REGISTERED or idaapi is None:
+        return
+    for action_name, label, callback in (
+        (_COPY_ACTION, "Copy all", _copy_viewer_all),
+        (_SAVE_ACTION, "Save as...", _save_viewer_as),
+        (_FUNCTIONS_ACTION, "Analyzed functions...", _show_viewer_functions),
+    ):
+        try:
+            idaapi.unregister_action(action_name)
+        except Exception:
+            pass
+        desc = idaapi.action_desc_t(
+            action_name,
+            label,
+            _PreviewActionHandler(callback),
+            "",
+            label,
+            -1,
+        )
+        idaapi.register_action(desc)
+    _ACTIONS_REGISTERED = True
+
+
+def cleanup_preview_actions() -> None:
+    global _ACTIONS_REGISTERED, _ACTIVE_VIEWER
+    if idaapi is not None:
+        for action_name in (
+            _COPY_ACTION,
+            _SAVE_ACTION,
+            _FUNCTIONS_ACTION,
+        ):
+            try:
+                idaapi.unregister_action(action_name)
+            except Exception:
+                pass
+    _ACTIONS_REGISTERED = False
+    _ACTIVE_VIEWER = None
+
+
+def _active_viewer() -> _ForgeTextViewer | None:
+    if _ACTIVE_VIEWER is not None:
+        return _ACTIVE_VIEWER
+    for viewer in _VIEWERS.values():
+        try:
+            if viewer.IsFocused():
+                return viewer
+        except Exception:
+            pass
+    return None
+
+
+def _bounded_preview_text(text: str, source_path: str | Path | None) -> str:
+    lines = text.splitlines()
+    truncated_by_lines = len(lines) > _MAX_PREVIEW_LINES
+    if truncated_by_lines:
+        body = "\n".join(lines[:_MAX_PREVIEW_LINES])
+    else:
+        body = text
+
+    truncated_by_chars = len(body) > _MAX_PREVIEW_CHARS
+    if truncated_by_chars:
+        body = body[:_MAX_PREVIEW_CHARS]
+
+    header = (
+        "// PseudoForge preview. IDB was not modified.\n"
+        "// Right-click for Copy all, Save as, or Analyzed functions.\n"
+    )
+    if not truncated_by_lines and not truncated_by_chars:
+        return header + "\n" + body
+
+    source = str(source_path) if source_path else "(not saved)"
+    notice = (
+        "// Preview truncated for IDA UI responsiveness.\n"
+        "// Copy all and Save as use the full content.\n"
+        "// Source: %s\n"
+        "// Preview limit: %d chars, %d lines\n"
+        % (source, _MAX_PREVIEW_CHARS, _MAX_PREVIEW_LINES)
+    )
+    return header + notice + "\n" + body
+
+
+def _highlight_preview_lines(lines: list[str]) -> list[str]:
+    if os.environ.get(_DISABLE_HIGHLIGHT_ENV) == "1":
+        return lines
+    if len(lines) > _MAX_HIGHLIGHT_LINES:
+        return lines
+    if sum(len(line) for line in lines) > _MAX_HIGHLIGHT_CHARS:
+        return lines
+    colorizer = _ida_colorizer()
+    if colorizer is None:
+        return lines
+    try:
+        return _syntax_highlight_lines(lines, colorizer)
+    except Exception as exc:
+        log_checkpoint("preview.highlight.failed", error=str(exc))
+        return lines
+
+
+def _syntax_highlight_lines(lines: list[str], colorizer: _Colorizer) -> list[str]:
+    highlighted: list[str] = []
+    in_block_comment = False
+    for line in lines:
+        highlighted_line, in_block_comment = _syntax_highlight_line(line, colorizer, in_block_comment)
+        highlighted.append(highlighted_line)
+    return highlighted
+
+
+def _syntax_highlight_line(line: str, colorizer: _Colorizer, in_block_comment: bool) -> tuple[str, bool]:
+    if not line:
+        return line, in_block_comment
+
+    output: list[str] = []
+    index = 0
+    while index < len(line):
+        if in_block_comment:
+            end_index = line.find("*/", index)
+            if end_index < 0:
+                output.append(colorizer(line[index:], "comment"))
+                return "".join(output), True
+            output.append(colorizer(line[index : end_index + 2], "comment"))
+            index = end_index + 2
+            in_block_comment = False
+            continue
+
+        comment_index = _find_next_comment_start(line, index)
+        if comment_index < 0:
+            output.append(_highlight_code_segment(line[index:], colorizer))
+            break
+
+        if comment_index > index:
+            output.append(_highlight_code_segment(line[index:comment_index], colorizer))
+
+        if line.startswith("//", comment_index):
+            output.append(colorizer(line[comment_index:], "comment"))
+            break
+
+        end_index = line.find("*/", comment_index + 2)
+        if end_index < 0:
+            output.append(colorizer(line[comment_index:], "comment"))
+            in_block_comment = True
+            break
+
+        output.append(colorizer(line[comment_index : end_index + 2], "comment"))
+        index = end_index + 2
+
+    return "".join(output), in_block_comment
+
+
+def _find_next_comment_start(line: str, start_index: int) -> int:
+    quote = ""
+    escaped = False
+    index = start_index
+    while index < len(line) - 1:
+        char = line[index]
+        if quote:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == quote:
+                quote = ""
+            index += 1
+            continue
+        if char in {"'", '"'}:
+            quote = char
+            index += 1
+            continue
+        if line.startswith("//", index) or line.startswith("/*", index):
+            return index
+        index += 1
+    return -1
+
+
+def _highlight_code_segment(segment: str, colorizer: _Colorizer) -> str:
+    if not segment:
+        return segment
+    if segment.lstrip().startswith("#"):
+        return colorizer(segment, "preprocessor")
+
+    output: list[str] = []
+    last_index = 0
+    for match in _TOKEN_RE.finditer(segment):
+        if match.start() > last_index:
+            output.append(segment[last_index : match.start()])
+        token = match.group(0)
+        role = _token_role(segment, match.start(), match.end(), token)
+        if role:
+            output.append(colorizer(token, role))
+        else:
+            output.append(token)
+        last_index = match.end()
+    if last_index < len(segment):
+        output.append(segment[last_index:])
+    return "".join(output)
+
+
+def _token_role(segment: str, start: int, end: int, token: str) -> str:
+    if token.startswith('"'):
+        return "string"
+    if token.startswith("'"):
+        return "char"
+    if token[:1].isdigit() or token.lower().startswith("0x"):
+        return "number"
+    if token in _C_KEYWORDS:
+        return "keyword"
+    if token in _C_TYPE_WORDS or token.endswith("_t"):
+        return "type"
+    if token in _C_CONSTANT_WORDS or token.startswith(("STATUS_", "POOL_FLAG_", "FAST_FAIL_")):
+        return "constant"
+    if _is_function_like_identifier(segment, end):
+        return "function"
+    return ""
+
+
+def _is_function_like_identifier(segment: str, end: int) -> bool:
+    index = end
+    while index < len(segment) and segment[index].isspace():
+        index += 1
+    return index < len(segment) and segment[index] == "("
+
+
+def _ida_colorizer() -> _Colorizer | None:
+    if ida_lines is None:
+        return None
+    colstr = getattr(ida_lines, "COLSTR", None)
+    if not callable(colstr):
+        return None
+
+    def colorize(text: str, role: str) -> str:
+        return colstr(text, _ida_color_for_role(role))
+
+    return colorize
+
+
+def _ida_color_for_role(role: str):
+    if ida_lines is None:
+        return 0
+    color_names = {
+        "char": ("SCOLOR_CHAR", "SCOLOR_STRING"),
+        "comment": ("SCOLOR_REGCMT", "SCOLOR_RPTCMT"),
+        "constant": ("SCOLOR_MACRO", "SCOLOR_KEYWORD"),
+        "function": ("SCOLOR_CNAME", "SCOLOR_DNAME"),
+        "keyword": ("SCOLOR_KEYWORD", "SCOLOR_SYMBOL"),
+        "number": ("SCOLOR_DNUM", "SCOLOR_NUMBER"),
+        "preprocessor": ("SCOLOR_MACRO", "SCOLOR_KEYWORD"),
+        "string": ("SCOLOR_STRING", "SCOLOR_CHAR"),
+        "type": ("SCOLOR_TYPE", "SCOLOR_KEYWORD"),
+    }
+    for color_name in color_names.get(role, ("SCOLOR_SYMBOL",)):
+        if hasattr(ida_lines, color_name):
+            return getattr(ida_lines, color_name)
+    return 0
+
+
+def _write_copy_temp_file(text: str) -> Path:
+    temp_dir = Path(tempfile.gettempdir()) / "pseudoforge_clipboard"
+    temp_dir.mkdir(parents=True, exist_ok=True)
+    path = temp_dir / "copy_all.forge"
+    text = _finalize_rendered_c_like_text(text)
+    path.write_text(text, encoding="utf-8")
+    return path
+
+
+def _copy_source_text(viewer: _ForgeTextViewer) -> tuple[str, Path]:
+    source_path = viewer.source_path
+    if viewer.copy_from_source and source_path is not None and source_path.exists():
+        text = source_path.read_text(encoding="utf-8", errors="replace")
+        return _finalize_rendered_c_like_text(text), source_path
+
+    _trace_checkpoint("copy_all.temp.before", title=viewer.title, chars=len(viewer.full_text))
+    temp_path = _write_copy_temp_file(viewer.full_text)
+    _trace_checkpoint("copy_all.temp.after", title=viewer.title, source=temp_path)
+    return _finalize_rendered_c_like_text(viewer.full_text), temp_path
+
+
+def _set_windows_clipboard_text(text: str) -> int:
+    if os.name != "nt":
+        raise RuntimeError("Copy all requires Windows clipboard support outside IDA")
+
+    user32 = ctypes.WinDLL("user32", use_last_error=True)
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+
+    user32.OpenClipboard.argtypes = [wintypes.HWND]
+    user32.OpenClipboard.restype = wintypes.BOOL
+    user32.EmptyClipboard.argtypes = []
+    user32.EmptyClipboard.restype = wintypes.BOOL
+    user32.SetClipboardData.argtypes = [wintypes.UINT, wintypes.HANDLE]
+    user32.SetClipboardData.restype = wintypes.HANDLE
+    user32.CloseClipboard.argtypes = []
+    user32.CloseClipboard.restype = wintypes.BOOL
+
+    kernel32.GlobalAlloc.argtypes = [wintypes.UINT, ctypes.c_size_t]
+    kernel32.GlobalAlloc.restype = wintypes.HGLOBAL
+    kernel32.GlobalLock.argtypes = [wintypes.HGLOBAL]
+    kernel32.GlobalLock.restype = ctypes.c_void_p
+    kernel32.GlobalUnlock.argtypes = [wintypes.HGLOBAL]
+    kernel32.GlobalUnlock.restype = wintypes.BOOL
+    kernel32.GlobalFree.argtypes = [wintypes.HGLOBAL]
+    kernel32.GlobalFree.restype = wintypes.HGLOBAL
+
+    cf_unicode_text = 13
+    gmem_moveable = 0x0002
+    gmem_zeroinit = 0x0040
+    clipboard_bytes = _clipboard_text(text).encode("utf-16-le") + b"\x00\x00"
+
+    hmem = kernel32.GlobalAlloc(gmem_moveable | gmem_zeroinit, len(clipboard_bytes))
+    if not hmem:
+        _raise_last_error("GlobalAlloc")
+
+    locked = kernel32.GlobalLock(hmem)
+    if not locked:
+        kernel32.GlobalFree(hmem)
+        _raise_last_error("GlobalLock")
+
+    try:
+        ctypes.memmove(locked, clipboard_bytes, len(clipboard_bytes))
+    finally:
+        kernel32.GlobalUnlock(hmem)
+
+    opened = False
+    for _attempt in range(_COPY_RETRY_COUNT):
+        if user32.OpenClipboard(None):
+            opened = True
+            break
+        time.sleep(_COPY_RETRY_DELAY_SECONDS)
+
+    if not opened:
+        kernel32.GlobalFree(hmem)
+        _raise_last_error("OpenClipboard")
+
+    try:
+        if not user32.EmptyClipboard():
+            _raise_last_error("EmptyClipboard")
+        if not user32.SetClipboardData(cf_unicode_text, hmem):
+            _raise_last_error("SetClipboardData")
+        hmem = None
+    finally:
+        user32.CloseClipboard()
+        if hmem:
+            kernel32.GlobalFree(hmem)
+
+    return len(clipboard_bytes)
+
+
+def _clipboard_text(text: str) -> str:
+    normalized = text.replace("\r\n", "\n").replace("\r", "\n")
+    return normalized.replace("\n", "\r\n")
+
+
+def _write_copy_status(status: str) -> None:
+    path = _copy_log_path()
+    try:
+        path.write_text(status, encoding="utf-8")
+    except Exception:
+        pass
+
+
+def _copy_log_path() -> Path:
+    temp_dir = Path(tempfile.gettempdir()) / "pseudoforge_clipboard"
+    temp_dir.mkdir(parents=True, exist_ok=True)
+    return temp_dir / "copy_all.log"
+
+
+def _raise_last_error(api_name: str) -> None:
+    error = ctypes.get_last_error()
+    raise OSError(error, "%s failed: %s" % (api_name, ctypes.FormatError(error)))
+
+
+def _safe_preview_filename(title: str) -> str:
+    stem = "".join(char if char.isalnum() or char in "._-" else "_" for char in title)
+    if stem.lower().endswith(".forge"):
+        stem = stem[:-6]
+    return (stem.strip("._") or "pseudoforge_preview") + ".cpp"
+
+
+def build_save_as_filename(target_stem: str, function_name: str, function_ea: int) -> str:
+    return "PseudoForge__%s__%s_0x%X.cpp" % (
+        _safe_filename_part(target_stem or "target"),
+        _safe_filename_part(function_name or "function"),
+        function_ea,
+    )
+
+
+def _safe_filename_part(value: str) -> str:
+    cleaned = "".join(char if char.isalnum() or char in "._-" else "_" for char in value)
+    return cleaned.strip("._") or "item"
+
+
+def _single_line_for_log(message: str) -> str:
+    return _ascii_for_log(message).replace("\r", " ").replace("\n", " | ")
+
+
+def _ascii_for_log(message: str) -> str:
+    return message.encode("ascii", errors="replace").decode("ascii")
+
+
+def _trace_checkpoint(event: str, **fields) -> None:
+    parts = ["preview.trace", event]
+    for key, value in fields.items():
+        parts.append("%s=%s" % (key, _ascii_for_log(str(value))))
+    message = " ".join(parts)
+    log_checkpoint(message)
+    try:
+        path = Path(tempfile.gettempdir()) / "pseudoforge_preview_trace.log"
+        append_bounded_log_line(path, "%0.3f %s" % (time.time(), message))
+    except Exception:
+        pass
