@@ -382,6 +382,8 @@ P2 switch body reporting update:
   `tests/test_render_status.py`.
 - Dispatcher/profile literal regressions now live in
   `tests/test_render_dispatcher.py`.
+- Generated style and positive-guard inversion regressions now live in
+  `tests/test_render_style.py`.
 
 P0 rename identity hardening update:
 

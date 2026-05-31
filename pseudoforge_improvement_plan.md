@@ -677,6 +677,8 @@ Completed:
 - [x] Moved dispatcher/profile literal regressions for system/process
   information classes and character case labels into
   `tests/test_render_dispatcher.py`.
+- [x] Moved generated style and positive-guard inversion rendering regressions
+  into `tests/test_render_style.py`.
 
 Remaining:
 
