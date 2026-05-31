@@ -570,6 +570,17 @@ Options:
 and SHA-256 metadata for the built-in profile files. Export summaries include
 the manifest entries for profiles touched during a run.
 
+Smoke-check the split-profile load path without forcing a brittle timing gate:
+
+```powershell
+python -B .\tools\profile_load_smoke.py --family functions --repeat 100 --json
+```
+
+The smoke command measures cold-load and repeated cached lookup time. It fails
+if profile warnings are emitted, no entries load, or a split family file exists
+but `kernel_api.json` is loaded instead. Optional `--max-cold-ms` and
+`--max-repeated-ms` thresholds can be used for local performance tracking.
+
 The built-in profile is currently generated from WDK `10.0.26100.0` and includes:
 
 - 470 headers
@@ -1368,6 +1379,7 @@ WDK profile generation checks:
 ```powershell
 python -B .\tools\build_kernel_api_profile.py --list-versions
 python -B .\tools\build_kernel_api_profile.py --version 10.0.26100.0 --dry-run --summary --function ExAllocatePool2 --function ExAcquireResourceExclusiveLite
+python -B .\tools\profile_load_smoke.py --family functions --repeat 100 --json
 python -B .\tools\build_status_codes_profile.py --version 10.0.26100.0 --dry-run --summary
 ```
 

@@ -307,11 +307,12 @@ Completed:
 - [x] Generated and shipped built-in split kernel API profile artifacts with
   manifest entries for functions, enums, structures, aliases, macros, symbols,
   and indices.
+- [x] Added `tools/profile_load_smoke.py` for cold-load and repeated cached
+  lookup smoke checks, including split-file and monolithic fallback guards.
 
 Remaining:
 
 - [ ] Add optional target-build profile selection.
-- [ ] Add cold-load and repeated-lookup performance smoke checks.
 
 ### Current Evidence
 
@@ -321,6 +322,9 @@ Remaining:
 - `ida_pseudoforge/core/kernel_api.py` uses lookup-family loader paths for
   function, enum, index, and symbol access, now backed by built-in split
   profile artifacts with monolithic fallback.
+- `tools/profile_load_smoke.py` measures split-family cold-load and repeated
+  cached lookup paths while failing on profile warnings, empty loads, or
+  unexpected monolithic loads when split files are present.
 - The implementation status records a single WDK 10.0.26100.0-generated profile
   as the current broad profile plus split family artifacts generated from that
   profile.
@@ -373,6 +377,7 @@ keeps analysis alive but can hide profile corruption.
 
 ```powershell
 python -B .\tools\build_kernel_api_profile.py --version 10.0.26100.0 --dry-run --summary --function ExAllocatePool2 --function MmCopyMemory
+python -B .\tools\profile_load_smoke.py --family functions --repeat 100 --json
 python -B .\tools\build_status_codes_profile.py --version 10.0.26100.0 --dry-run --summary
 python -B -m unittest tests.test_kernel_api_profile_builder -v
 python -B -m unittest discover -s tests -v

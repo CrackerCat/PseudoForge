@@ -294,6 +294,9 @@ P1 profile loader diagnostics update:
 - `tools/build_kernel_api_profile.py` can write split family profile files with
   `--split-output-dir`; `--split-only` skips monolithic output for split-only
   generation workflows.
+- `tools/profile_load_smoke.py` measures split-family cold-load and repeated
+  cached lookup paths and fails closed on profile warnings, empty loads, or
+  unexpected monolithic `kernel_api.json` loads while split files are present.
 - `tests/test_profile_loader.py` covers invalid JSON warning recording and cache
   reset behavior plus active profile manifest reporting and split-family loader
   fallback behavior.
