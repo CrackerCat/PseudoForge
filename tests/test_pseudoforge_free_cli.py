@@ -168,6 +168,8 @@ class PseudoForgeFreeCliTests(unittest.TestCase):
             ):
                 self.assertIn(key, artifacts)
                 self.assertTrue(Path(artifacts[key]).exists(), key)
+            self.assertEqual("free_sample.ida-free-summary.json", Path(artifacts["summary"]).name)
+            self.assertFalse((output_dir / "free_sample.summary.json").exists())
             self.assertFalse(pseudoforge_free_cli.loaded_ida_modules())
 
     def test_free_cli_text_mode_prints_progress_and_pretty_summary(self):

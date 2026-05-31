@@ -62,7 +62,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     provider = _build_cli_provider(args) if args.llm_renames else None
     plan = build_clean_plan(capture, rename_provider=provider, rule_dirs=args.rules_dir)
-    paths = write_export_bundle(args.out, capture, plan)
+    paths = write_export_bundle(args.out, capture, plan, entrypoint="offline_cli")
     warnings = _combined_warnings(plan.warnings, profile_load_warnings())
     if args.rule_report:
         report_path = _write_rule_report(args.rule_report, capture, plan.rule_report)

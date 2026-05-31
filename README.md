@@ -752,7 +752,14 @@ Export is the durable artifact path for PseudoForge analysis. It is not an apply
 <function>.rename-map.json
 <function>.flow-report.md
 <function>.rule-report.json
+<function>.raw.cpp
+<function>.warnings.json
+<function>.raw-vs-cleaned.diff
+<function>.summary.json
 ```
+
+The IDA Free CLI keeps its compatibility summary filename as
+`<function>.ida-free-summary.json`.
 
 File purposes:
 
@@ -761,6 +768,25 @@ File purposes:
 - `.rename-map.json`: full `CleanPlan` JSON.
 - `.flow-report.md`: dispatcher, recovered cases, cleanup labels, and warning report.
 - `.rule-report.json`: deterministic rule matches, rejected emissions, load errors, and validation errors.
+- `.raw.cpp`: original captured decompiler text used as analysis input.
+- `.warnings.json`: plan and profile-load warnings as reviewable JSON.
+- `.raw-vs-cleaned.diff`: unified diff from raw pseudocode to cleaned output.
+- `.summary.json` / `.ida-free-summary.json`: per-function export metadata, counts, profile warnings, and artifact paths.
+
+Artifact parity:
+
+| Artifact | IDA interactive export | Offline CLI | IDA Free CLI |
+| --- | --- | --- | --- |
+| Cleaned pseudocode | yes | yes | yes |
+| Switch outline | yes | yes | yes |
+| Rename map / CleanPlan | yes | yes | yes |
+| Flow report | yes | yes | yes |
+| Rule report | yes | yes | yes |
+| Raw pseudocode | yes | yes | yes |
+| Warnings JSON | yes | yes | yes |
+| Raw-vs-cleaned diff | yes | yes | yes |
+| Per-function summary | yes | yes | yes |
+| Run manifest | no | no | yes |
 
 Caveats:
 
@@ -788,6 +814,11 @@ cleaned_pseudocode: ...
 switch_outline: ...
 rename_map: ...
 flow_report: ...
+rule_report: ...
+raw_pseudocode: ...
+warnings: ...
+raw_vs_cleaned_diff: ...
+summary: ...
 ```
 
 Use LLM rename assist with provider-specific environment variables or options:

@@ -170,10 +170,11 @@ Implemented in this folder:
    - `tests/test_ida_plugin_safety.py`
    - `tests/test_render_snapshots.py`
    - `tests/test_profile_loader.py`
+   - `tests/test_export_bundle.py`
    - `tests/test_pseudoforge_free_cli.py`
    - `tests/test_release_pseudoforge.py`
    - renderer golden snapshots under `tests/snapshots`
-   - current suite covers 195 unit tests
+   - current suite covers 197 unit tests
 
 ## Latest Implementation Notes
 
@@ -203,6 +204,20 @@ P1 profile loader diagnostics update:
   run.
 - `tests/test_profile_loader.py` covers invalid JSON warning recording and cache
   reset behavior.
+
+P1 export artifact parity update:
+
+- Shared export bundles now include raw pseudocode, warnings JSON,
+  raw-vs-cleaned diff, and per-function summary JSON in addition to the existing
+  cleaned pseudocode, switch outline, rename map, flow report, and rule report.
+- IDA interactive export, offline CLI, and IDA Free CLI calls pass entrypoint
+  metadata into the shared bundle writer.
+- IDA Free CLI keeps the existing `.ida-free-summary.json` summary filename
+  without leaving an extra unreported `.summary.json` artifact.
+- `README.md` documents artifact parity across IDA interactive export, offline
+  CLI, and IDA Free CLI.
+- `tests/test_export_bundle.py` covers parity artifact creation and summary
+  metadata.
 
 P0 rename identity hardening update:
 
@@ -561,7 +576,7 @@ implemented:
 deferred:
 - Full non-blocking LLM model discovery UI refresh is still deferred; current behavior keeps the existing dialog flow with safer fallback handling.
 - Ctree identity tracking is still incomplete; apply continues to call ida_hexrays.rename_lvar(function_ea, old, new) after the new session and preflight gates pass.
-- Interactive export does not yet include the full IDA Free CLI artifact set such as raw pseudocode, raw-vs-cleaned diff, and summary JSON.
+- Interactive export now shares raw pseudocode, warnings JSON, raw-vs-cleaned diff, and summary JSON artifacts with the CLI paths; only IDA Free CLI-specific run manifest output remains separate.
 ```
 
 Next continuation point:

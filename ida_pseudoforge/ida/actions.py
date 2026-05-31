@@ -97,7 +97,7 @@ def export_current_function() -> dict[str, str]:
         with trace_scope("export.output_dir"):
             output_dir = run_on_main_thread(_default_output_dir, write=False)
         with trace_scope("export.write_bundle", function=capture.name, output_dir=str(output_dir)):
-            paths = write_export_bundle(output_dir, capture, plan)
+            paths = write_export_bundle(output_dir, capture, plan, entrypoint="ida_interactive")
         log_event("export.done function=\"%s\" output_dir=\"%s\"" % (_ascii_for_log(capture.name), output_dir))
         return paths
 

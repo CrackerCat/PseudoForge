@@ -300,14 +300,36 @@ python -B -m unittest discover -s tests -v
 
 ## P1: Interactive Export Parity With IDA Free CLI
 
+Status: In progress.
+
+Completed:
+
+- [x] Added raw pseudocode, warnings JSON, raw-vs-cleaned diff, and summary JSON
+  to the shared export bundle while preserving existing artifact keys.
+- [x] Added entrypoint metadata for interactive export, offline CLI, and IDA Free
+  CLI calls that use the shared bundle writer.
+- [x] Added README artifact parity table across IDA interactive export, offline
+  CLI, and IDA Free CLI.
+- [x] Added focused export bundle coverage for parity artifacts and summary
+  metadata.
+
+Remaining:
+
+- [ ] Move shared artifact writing into a dedicated export module.
+- [ ] Add profile manifest metadata once profile manifests exist.
+- [ ] Align IDA batch compare artifacts with the shared bundle schema where
+  practical.
+
 ### Current Evidence
 
 - `write_export_bundle()` writes cleaned pseudocode, switch outline, rename map,
-  flow report, and rule report.
-- `tools/pseudoforge_free_cli.py` adds raw pseudocode, warnings JSON,
-  raw-vs-cleaned diff, per-function summary JSON, and a run manifest.
-- `pseudoforge_implementation_status.md` explicitly defers aligning
-  interactive export artifacts with the IDA Free CLI output set.
+  flow report, rule report, raw pseudocode, warnings JSON, raw-vs-cleaned diff,
+  and per-function summary JSON.
+- `tools/pseudoforge_free_cli.py` now uses the shared bundle writer for those
+  artifacts, keeps its `.ida-free-summary.json` compatibility filename, and
+  adds the run manifest.
+- `pseudoforge_implementation_status.md` records the shared export parity update
+  and the remaining module split/profile manifest/batch compare follow-ups.
 
 ### Problem
 

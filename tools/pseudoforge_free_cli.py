@@ -229,7 +229,13 @@ def _process_input(
 
     console.step("Write artifacts", str(output_dir))
     try:
-        artifact_paths = deps.write_export_bundle(output_dir, capture, plan)
+        artifact_paths = deps.write_export_bundle(
+            output_dir,
+            capture,
+            plan,
+            entrypoint="ida_free_offline",
+            summary_suffix="ida-free-summary",
+        )
         warnings = _combined_warnings(plan.warnings, deps.profile_load_warnings())
         if len(warnings) > len(plan.warnings):
             console.field("Profile warnings", len(warnings) - len(plan.warnings))
