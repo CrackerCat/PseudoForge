@@ -745,6 +745,8 @@ Completed:
   `tests/test_llm_rename_filters.py`.
 - [x] Moved success-accounting label-tail classification coverage into
   `tests/test_render_labels.py`.
+- [x] Moved the shared NtSet system-information sample from
+  `tests/test_core_engine.py` into `tests/fixtures/ntset_samples.py`.
 
 Remaining:
 
@@ -755,12 +757,12 @@ Remaining:
 
 ### Current Evidence
 
-- `tests/test_core_engine.py` is 134 lines after the focused forge-store,
+- `tests/test_core_engine.py` is 97 lines after the focused forge-store,
   UI preview, RuleContext, rule-pack validator, RuleEngine, rule integration,
   IDA batch, LLM config, logging, release/version, kernel profile, DriverEntry,
   Memory Manager, IOCTL/IRP, callback, Zw/API, TraceLogging/flow, and signature
   and NtSet/label/kernel-hint/style/rename-heuristic/LLM-filter/label-tail
-  splits.
+  splits plus the shared NtSet fixture extraction.
 - Status literal rendering coverage now has a focused
   `tests/test_render_status.py` suite.
 - Dispatcher/profile literal coverage now has a focused
@@ -809,6 +811,8 @@ Remaining:
   `tests/fixtures/kernel_samples.py`.
 - Success-accounting label-tail coverage now lives in
   `tests/test_render_labels.py`.
+- Shared NtSet system-information sample coverage now uses
+  `tests/fixtures/ntset_samples.py`.
 - Firmware handler kernel-driver semantics coverage now lives in
   `tests/test_render_kernel_hints.py`.
 - Multiline-condition brace and single-line if-body style coverage now lives in
