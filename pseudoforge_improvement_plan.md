@@ -500,19 +500,25 @@ Completed:
   `call_arg_rewrite` rules for parity comparison.
 - [x] Documented the v2 preview-only boundary in
   `deterministic_rules_matching_engine_design.md`.
+- [x] Added v2 `text_rewrite` validation with explicit `before_regex`,
+  `replacement`, `preview_only: true`, and `requires_comment_kind` gates.
+- [x] Added span-overlap conflict detection for preview-only `text_rewrite`
+  reports.
+- [x] Runs `text_rewrite` after semantic comments for reporting only, without
+  changing rendered pseudocode or IDB state.
 
 Remaining:
 
-- [ ] Add `text_rewrite` only after span conflict detection exists.
 - [ ] Add `flow` only after stronger branch evidence exists.
 
 ### Current Evidence
 
 - `deterministic_rules_matching_engine_design.md` documents v2
-  `call_arg_rewrite` as preview/export-only and still reserves `text_rewrite`
-  and `flow`.
+  `call_arg_rewrite` and `text_rewrite` as preview/export-only while still
+  reserving `flow`.
 - `ida_pseudoforge/core/deterministic/validators.py` accepts v1 rename/comment
-  phases and v2 preview-only `call_arg_rewrite`, with emit kind matching phase.
+  phases and v2 preview-only `call_arg_rewrite`/`text_rewrite`, with emit kind
+  matching phase.
 - `ida_pseudoforge/core/deterministic/schema.py` exposes
   `RuleReport.rewrite_emissions` for preview-only rewrite status reporting.
 - `ida_pseudoforge/rules/builtin/call_arg_rewrites.json` mirrors one BOOLEAN
@@ -1019,8 +1025,9 @@ increases drift.
 3. Extract renderer modules one family at a time.
 4. Add export parity shared writer.
 5. Split generated kernel profile and add manifest-aware loader.
-6. Add deterministic rules v2 `call_arg_rewrite`.
-7. Expand `RuleContext` facts and then add guarded `text_rewrite`.
+6. Add deterministic rules v2 `call_arg_rewrite` and guarded `text_rewrite`
+   report phases.
+7. Add safe `flow` rule support only after stronger branch evidence exists.
 8. Improve switch reports before attempting deeper body reconstruction.
 9. Split `test_core_engine.py` after behavior is stabilized.
 10. Add dockable preview and non-blocking model discovery.

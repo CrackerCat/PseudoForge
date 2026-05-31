@@ -14,6 +14,7 @@ SUPPORTED_V1_PHASES = {
 
 SUPPORTED_V2_PHASES = SUPPORTED_V1_PHASES | {
     "call_arg_rewrite",
+    "text_rewrite",
 }
 
 SUPPORTED_PHASES = SUPPORTED_V2_PHASES
@@ -25,11 +26,12 @@ SUPPORTED_V1_EMISSION_KINDS = {
 
 SUPPORTED_V2_EMISSION_KINDS = SUPPORTED_V1_EMISSION_KINDS | {
     "call_arg_rewrite",
+    "text_rewrite",
 }
 
 SUPPORTED_EMISSION_KINDS = SUPPORTED_V2_EMISSION_KINDS
 
-SUPPORTED_SCOPE_OPERATORS = {
+SUPPORTED_V1_SCOPE_OPERATORS = {
     "calls_any",
     "calls_all",
     "lvars_any",
@@ -39,6 +41,12 @@ SUPPORTED_SCOPE_OPERATORS = {
     "text_contains_all",
 }
 
+SUPPORTED_V2_SCOPE_OPERATORS = SUPPORTED_V1_SCOPE_OPERATORS | {
+    "requires_comment_kind",
+}
+
+SUPPORTED_SCOPE_OPERATORS = SUPPORTED_V2_SCOPE_OPERATORS
+
 SUPPORTED_V1_MATCH_OPERATORS = {
     "regex",
     "assignment_regex",
@@ -47,6 +55,7 @@ SUPPORTED_V1_MATCH_OPERATORS = {
 }
 
 SUPPORTED_V2_MATCH_OPERATORS = SUPPORTED_V1_MATCH_OPERATORS | {
+    "before_regex",
     "call_arg_count",
     "call_arg_literal",
 }

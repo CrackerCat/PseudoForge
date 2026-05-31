@@ -70,7 +70,8 @@ class RuleEngine:
 
 def _resolve_conflicts(emissions, report: RuleReport):
     rename_groups = defaultdict(list)
-    rewrite_groups = defaultdict(list)
+    call_arg_rewrite_groups = defaultdict(list)
+    text_rewrites = []
     seen_renames = set()
     passthrough = []
     for emission in emissions:
@@ -87,7 +88,13 @@ def _resolve_conflicts(emissions, report: RuleReport):
             if not key:
                 _record_rewrite_emission(report, emission, "rejected", "call_arg_rewrite target is incomplete")
                 continue
-            rewrite_groups[key].append(emission)
+            call_arg_rewrite_groups[key].append(emission)
+        elif emission.kind == "text_rewrite":
+            span = _text_rewrite_span(emission)
+            if span is None:
+                _record_rewrite_emission(report, emission, "rejected", "text_rewrite span is incomplete")
+                continue
+            text_rewrites.append(emission)
         else:
             passthrough.append(emission)
 
@@ -108,7 +115,7 @@ def _resolve_conflicts(emissions, report: RuleReport):
                     "source": emission.source_label,
                 }
             )
-    for key, group in rewrite_groups.items():
+    for key, group in call_arg_rewrite_groups.items():
         winner = max(group, key=lambda emission: _emission_rank(emission, group))
         result.append(winner)
         _record_rewrite_emission(report, winner, "applied")
@@ -122,6 +129,7 @@ def _resolve_conflicts(emissions, report: RuleReport):
                 "call_arg_rewrite conflict on %s[%s] won by %s" % (key[0], key[1], winner.rule_id),
                 winner_rule_id=winner.rule_id,
             )
+    result.extend(_resolve_text_rewrite_conflicts(text_rewrites, report))
     result.extend(passthrough)
     return result
 
@@ -148,6 +156,50 @@ def _call_arg_rewrite_key(emission) -> tuple[str, int] | None:
     if not function_name or not isinstance(argument_index, int) or isinstance(argument_index, bool) or argument_index < 0:
         return None
     return (function_name, argument_index)
+
+
+def _text_rewrite_span(emission) -> tuple[int, int] | None:
+    span = emission.payload.get("span")
+    if not isinstance(span, list) or len(span) != 2:
+        return None
+    start, end = span
+    if not isinstance(start, int) or isinstance(start, bool):
+        return None
+    if not isinstance(end, int) or isinstance(end, bool):
+        return None
+    if start < 0 or end <= start:
+        return None
+    return (start, end)
+
+
+def _resolve_text_rewrite_conflicts(emissions, report: RuleReport):
+    accepted = []
+    accepted_spans: list[tuple[tuple[int, int], object]] = []
+    ranked = sorted(emissions, key=lambda emission: _emission_rank(emission, emissions), reverse=True)
+    for emission in ranked:
+        span = _text_rewrite_span(emission)
+        if span is None:
+            _record_rewrite_emission(report, emission, "rejected", "text_rewrite span is incomplete")
+            continue
+        conflict = next((item for item in accepted_spans if _spans_overlap(span, item[0])), None)
+        if conflict is not None:
+            winner = conflict[1]
+            _record_rewrite_emission(
+                report,
+                emission,
+                "shadowed",
+                "text_rewrite span conflict won by %s" % winner.rule_id,
+                winner_rule_id=winner.rule_id,
+            )
+            continue
+        accepted.append(emission)
+        accepted_spans.append((span, emission))
+        _record_rewrite_emission(report, emission, "applied")
+    return accepted
+
+
+def _spans_overlap(left: tuple[int, int], right: tuple[int, int]) -> bool:
+    return left[0] < right[1] and right[0] < left[1]
 
 
 def _record_rewrite_emission(
@@ -184,7 +236,7 @@ def _reject_rule(report: RuleReport, rule, reason: str) -> None:
             "source": rule.source_label or rule.pack_id,
         }
     )
-    if rule.phase == "call_arg_rewrite" or str((rule.emit or {}).get("kind", "")) == "call_arg_rewrite":
+    if _is_rewrite_rule(rule):
         report.rewrite_emissions.append(
             {
                 "rule_id": rule.id,
@@ -194,3 +246,8 @@ def _reject_rule(report: RuleReport, rule, reason: str) -> None:
                 "source": rule.source_label or rule.pack_id,
             }
         )
+
+
+def _is_rewrite_rule(rule) -> bool:
+    kind = str((rule.emit or {}).get("kind", ""))
+    return rule.phase in {"call_arg_rewrite", "text_rewrite"} or kind in {"call_arg_rewrite", "text_rewrite"}

@@ -11,6 +11,7 @@ from tests.helpers import (
     _call_arg_rewrite_rule,
     _rename_rule,
     _rule_pack,
+    _text_rewrite_rule,
 )
 
 
@@ -92,11 +93,17 @@ class RulePackValidatorTests(unittest.TestCase):
             empty_scope_gate_path.write_text(json.dumps(_rule_pack([empty_scope_gate])), encoding="utf-8")
             self.assertTrue(any("calls_any must be a non-empty string or non-empty string list" in error for error in validate_rule_pack_file(empty_scope_gate_path)))
 
+            v1_comment_gate = _rename_rule()
+            v1_comment_gate["scope"]["requires_comment_kind"] = "test_semantic_gate"
+            v1_comment_gate_path = temp_path / "v1_comment_gate.json"
+            v1_comment_gate_path.write_text(json.dumps(_rule_pack([v1_comment_gate])), encoding="utf-8")
+            self.assertTrue(any("requires_comment_kind is not supported" in error for error in validate_rule_pack_file(v1_comment_gate_path)))
+
             ambiguous_regex = _rename_rule()
             ambiguous_regex["match"]["regex"] = r"\bv1\b"
             ambiguous_regex_path = temp_path / "ambiguous_regex.json"
             ambiguous_regex_path.write_text(json.dumps(_rule_pack([ambiguous_regex])), encoding="utf-8")
-            self.assertTrue(any("must not combine regex and assignment_regex" in error for error in validate_rule_pack_file(ambiguous_regex_path)))
+            self.assertTrue(any("must not combine regex" in error for error in validate_rule_pack_file(ambiguous_regex_path)))
 
             invalid_schema = _rule_pack([_rename_rule()])
             invalid_schema["schema_version"] = True
@@ -140,6 +147,36 @@ class RulePackValidatorTests(unittest.TestCase):
             binding_function_path = temp_path / "binding_function.json"
             binding_function_path.write_text(json.dumps(_rule_pack([binding_function], schema_version=2)), encoding="utf-8")
             self.assertTrue(any("must gate call_arg_rewrite" in error for error in validate_rule_pack_file(binding_function_path)))
+
+    def test_rule_pack_validator_accepts_v2_text_rewrite_preview_only(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            valid_path = temp_path / "valid_v2_text_rewrite.json"
+            valid_path.write_text(json.dumps(_rule_pack([_text_rewrite_rule()], schema_version=2)), encoding="utf-8")
+
+            self.assertEqual(validate_rule_pack_file(valid_path), [])
+
+            v1_path = temp_path / "v1_text_rewrite_rejected.json"
+            v1_path.write_text(json.dumps(_rule_pack([_text_rewrite_rule()])), encoding="utf-8")
+            self.assertTrue(any("phase" in error for error in validate_rule_pack_file(v1_path)))
+
+            not_preview = _text_rewrite_rule()
+            not_preview["emit"]["preview_only"] = False
+            not_preview_path = temp_path / "text_not_preview.json"
+            not_preview_path.write_text(json.dumps(_rule_pack([not_preview], schema_version=2)), encoding="utf-8")
+            self.assertTrue(any("preview_only must be true" in error for error in validate_rule_pack_file(not_preview_path)))
+
+            missing_gate = _text_rewrite_rule()
+            missing_gate["scope"] = {"text_contains": "ProbeForRead"}
+            missing_gate_path = temp_path / "text_missing_gate.json"
+            missing_gate_path.write_text(json.dumps(_rule_pack([missing_gate], schema_version=2)), encoding="utf-8")
+            self.assertTrue(any("requires_comment_kind is required" in error for error in validate_rule_pack_file(missing_gate_path)))
+
+            missing_before = _text_rewrite_rule()
+            missing_before["match"] = {"text_contains": "ProbeForRead"}
+            missing_before_path = temp_path / "text_missing_before.json"
+            missing_before_path.write_text(json.dumps(_rule_pack([missing_before], schema_version=2)), encoding="utf-8")
+            self.assertTrue(any("before_regex is required" in error for error in validate_rule_pack_file(missing_before_path)))
 
     def test_rule_pack_validator_accepts_v2_call_arg_match_gates(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

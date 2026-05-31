@@ -17,6 +17,8 @@ def match_regex_rule(rule: Rule, context: RuleContext) -> list[RuleMatch]:
         return []
     if "assignment_regex" in match_data:
         return _regex_matches(rule, context, str(match_data.get("assignment_regex", "")), assignment=True)
+    if "before_regex" in match_data:
+        return _regex_matches(rule, context, str(match_data.get("before_regex", "")), assignment=False)
     if "regex" in match_data:
         return _regex_matches(rule, context, str(match_data.get("regex", "")), assignment=False)
     if call_arg_matches is not None:
@@ -86,6 +88,9 @@ def _scope_matches(rule: Rule, context: RuleContext) -> bool:
                 return False
         elif key == "prototype_contains":
             if str(value) not in (context.capture.prototype or ""):
+                return False
+        elif key == "requires_comment_kind":
+            if not _any_string_in_set(value, context.semantic_comment_kinds):
                 return False
         elif key == "text_contains":
             if str(value) not in context.text:

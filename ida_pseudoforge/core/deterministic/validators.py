@@ -12,10 +12,11 @@ from ida_pseudoforge.core.deterministic.schema import (
     SUPPORTED_V1_EMISSION_KINDS,
     SUPPORTED_V1_MATCH_OPERATORS,
     SUPPORTED_V1_PHASES,
+    SUPPORTED_V1_SCOPE_OPERATORS,
     SUPPORTED_V2_EMISSION_KINDS,
     SUPPORTED_V2_MATCH_OPERATORS,
     SUPPORTED_V2_PHASES,
-    SUPPORTED_SCOPE_OPERATORS,
+    SUPPORTED_V2_SCOPE_OPERATORS,
 )
 
 
@@ -117,7 +118,7 @@ def _validate_rule(rule: dict[str, Any], prefix: str, schema_version: int) -> li
     if not isinstance(scope, dict):
         errors.append("%s.scope must be an object" % prefix)
         scope = {}
-    errors.extend(_validate_operator_map(scope, SUPPORTED_SCOPE_OPERATORS, "%s.scope" % prefix))
+    errors.extend(_validate_operator_map(scope, _supported_scope_operators(schema_version), "%s.scope" % prefix))
     errors.extend(_validate_scope_values(scope, "%s.scope" % prefix))
     errors.extend(_validate_scope_regexes(scope, "%s.scope" % prefix))
 
@@ -130,6 +131,8 @@ def _validate_rule(rule: dict[str, Any], prefix: str, schema_version: int) -> li
     errors.extend(_validate_regexes(match, "%s.match" % prefix))
     errors.extend(_validate_match_values(match, "%s.match" % prefix))
     errors.extend(_validate_match_shape(match, "%s.match" % prefix))
+    if phase == "text_rewrite":
+        errors.extend(_validate_text_rewrite_match(match, "%s.match" % prefix))
     if not any(key in match for key in supported_match_operators):
         errors.append("%s.match must define at least one supported operator" % prefix)
 
@@ -140,6 +143,8 @@ def _validate_rule(rule: dict[str, Any], prefix: str, schema_version: int) -> li
     errors.extend(_validate_emit(emit, phase, "%s.emit" % prefix, schema_version))
     if phase == "call_arg_rewrite":
         errors.extend(_validate_call_arg_rewrite_scope(scope, emit, "%s.scope" % prefix))
+    elif phase == "text_rewrite":
+        errors.extend(_validate_text_rewrite_scope(scope, "%s.scope" % prefix))
     return errors
 
 
@@ -153,7 +158,7 @@ def _validate_operator_map(data: dict[str, Any], supported: set[str], prefix: st
 
 def _validate_regexes(match: dict[str, Any], prefix: str) -> list[str]:
     errors = []
-    for key in ("regex", "assignment_regex"):
+    for key in ("regex", "assignment_regex", "before_regex"):
         if key not in match:
             continue
         pattern = match.get(key)
@@ -169,7 +174,7 @@ def _validate_regexes(match: dict[str, Any], prefix: str) -> list[str]:
 
 def _validate_scope_values(scope: dict[str, Any], prefix: str) -> list[str]:
     errors = []
-    for key in ("calls_any", "calls_all", "lvars_any", "text_contains_all"):
+    for key in ("calls_any", "calls_all", "lvars_any", "requires_comment_kind", "text_contains_all"):
         if key in scope:
             errors.extend(_validate_string_or_string_list(scope.get(key), "%s.%s" % (prefix, key)))
     for key in ("prototype_contains", "text_contains"):
@@ -192,10 +197,16 @@ def _validate_match_values(match: dict[str, Any], prefix: str) -> list[str]:
 
 
 def _validate_match_shape(match: dict[str, Any], prefix: str) -> list[str]:
-    primary_regexes = [key for key in ("regex", "assignment_regex") if key in match]
+    primary_regexes = [key for key in ("regex", "assignment_regex", "before_regex") if key in match]
     if len(primary_regexes) > 1:
-        return ["%s must not combine regex and assignment_regex" % prefix]
+        return ["%s must not combine regex, assignment_regex, and before_regex" % prefix]
     return []
+
+
+def _validate_text_rewrite_match(match: dict[str, Any], prefix: str) -> list[str]:
+    if "before_regex" in match:
+        return []
+    return ["%s.before_regex is required for text_rewrite" % prefix]
 
 
 def _validate_scope_regexes(scope: dict[str, Any], prefix: str) -> list[str]:
@@ -279,6 +290,8 @@ def _validate_emit(emit: dict[str, Any], phase: object, prefix: str, schema_vers
                 errors.append("%s.%s is required" % (prefix, field_name))
     elif kind == "call_arg_rewrite":
         errors.extend(_validate_call_arg_rewrite_emit(emit, prefix))
+    elif kind == "text_rewrite":
+        errors.extend(_validate_text_rewrite_emit(emit, prefix))
     return errors
 
 
@@ -290,6 +303,15 @@ def _validate_call_arg_rewrite_emit(emit: dict[str, Any], prefix: str) -> list[s
     argument_index = emit.get("argument_index")
     if not isinstance(argument_index, int) or isinstance(argument_index, bool) or argument_index < 0:
         errors.append("%s.argument_index must be a non-negative integer" % prefix)
+    if emit.get("preview_only") is not True:
+        errors.append("%s.preview_only must be true" % prefix)
+    return errors
+
+
+def _validate_text_rewrite_emit(emit: dict[str, Any], prefix: str) -> list[str]:
+    errors: list[str] = []
+    if not isinstance(emit.get("replacement"), str) or not emit.get("replacement"):
+        errors.append("%s.replacement is required" % prefix)
     if emit.get("preview_only") is not True:
         errors.append("%s.preview_only must be true" % prefix)
     return errors
@@ -308,6 +330,12 @@ def _validate_call_arg_rewrite_scope(scope: dict[str, Any], emit: dict[str, Any]
     if _scope_calls_include(scope.get("calls_all"), function_name):
         return []
     return ["%s must gate call_arg_rewrite with calls_any/calls_all for %s" % (prefix, function_name)]
+
+
+def _validate_text_rewrite_scope(scope: dict[str, Any], prefix: str) -> list[str]:
+    if "requires_comment_kind" in scope:
+        return []
+    return ["%s.requires_comment_kind is required for text_rewrite" % prefix]
 
 
 def _has_call_scope_gate(scope: dict[str, Any]) -> bool:
@@ -342,6 +370,12 @@ def _supported_match_operators(schema_version: int) -> set[str]:
     if schema_version <= 1:
         return SUPPORTED_V1_MATCH_OPERATORS
     return SUPPORTED_V2_MATCH_OPERATORS
+
+
+def _supported_scope_operators(schema_version: int) -> set[str]:
+    if schema_version <= 1:
+        return SUPPORTED_V1_SCOPE_OPERATORS
+    return SUPPORTED_V2_SCOPE_OPERATORS
 
 
 def _contains_forbidden_key(value: Any) -> bool:

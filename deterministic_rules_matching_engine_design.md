@@ -161,6 +161,7 @@ Allowed v2 preview/export-only emission kinds:
 
 ```text
 call_arg_rewrite
+text_rewrite
 ```
 
 Future reserved kinds:
@@ -168,7 +169,6 @@ Future reserved kinds:
 ```text
 warning
 cleanup_label
-text_rewrite
 symbol_alias
 flow
 ```
@@ -245,6 +245,7 @@ Supported preview/export-only v2 phases:
 
 ```text
 call_arg_rewrite
+text_rewrite
 ```
 
 Reserved future phases:
@@ -254,7 +255,6 @@ symbol_alias
 warning
 cleanup_label
 flow
-text_rewrite
 ```
 
 Recommended policy:
@@ -268,8 +268,9 @@ Recommended policy:
 7. `call_arg_rewrite` emits profile-backed argument rewrite candidates.
 8. `text_rewrite` requires a semantic comment gate, confidence gate, and export-only behavior.
 
-Except for v2 `call_arg_rewrite`, reserved phases must be rejected by the
-validator until they have explicit preview/export-only boundaries.
+Except for v2 `call_arg_rewrite` and `text_rewrite`, reserved phases must be
+rejected by the validator until they have explicit preview/export-only
+boundaries.
 
 ## JSON Rule Format
 
@@ -469,12 +470,14 @@ Rename conflict order:
 6. Deterministic lexical rule ID order.
 7. Final `validate_renames()` collision, keyword, and identifier checks.
 
-Text rewrite conflict policy for future phases:
+Preview text rewrite conflict policy:
 
 1. Only one rewrite may modify the same span.
 2. A rewrite without `requires_comment_kind` is rejected by default.
-3. Replacements containing control-flow keywords force `export_only=true`.
-4. Before/after text must pass style and whitespace hygiene checks.
+3. `text_rewrite` emits report-only preview candidates and does not modify
+   rendered pseudocode or IDB state.
+4. Before/after text application remains deferred until style and whitespace
+   hygiene checks are implemented.
 
 Warning/comment dedupe:
 
@@ -529,9 +532,10 @@ Current v1 structure:
 
 The exported report contains `matched_rules`, `rewrite_emissions`,
 `rejected_emissions`, `load_errors`, and `validation_errors`.
-`rewrite_emissions` is report-only for v2 `call_arg_rewrite` candidates and
-can record `applied`, `shadowed`, or `rejected` status without adding IDB write
-authority. A future UI summary can show counts only:
+`rewrite_emissions` is report-only for v2 `call_arg_rewrite` and
+`text_rewrite` candidates and can record `applied`, `shadowed`, or `rejected`
+status without adding IDB write authority. A future UI summary can show counts
+only:
 
 ```text
 // Deterministic rules: 4 matched, 1 rejected, 0 load errors
@@ -615,11 +619,13 @@ Target scope:
 
 Target scope:
 
-1. Wrap `KernelRewriteRule` as a `text_rewrite_rule`.
-2. Promote `requires_comment_kind` to a schema field.
+1. Support preview-only `text_rewrite` rules with explicit `before_regex` and
+   `replacement`.
+2. Require `requires_comment_kind` as a semantic scope gate.
 3. Add span conflict detection.
-4. Record applied and rejected rewrites in the rule report.
-5. Preserve existing firmware/provider-list tests.
+4. Record applied, shadowed, and rejected rewrites in the rule report.
+5. Preserve existing firmware/provider-list tests before allowing any renderer
+   parity migration.
 
 ### Phase 5: IDA UX
 
@@ -657,4 +663,5 @@ The first production-safe slice should stay narrow:
 9. User-global `%APPDATA%\PseudoForge\rules` support.
 10. No behavioral change for existing tests unless intentionally documented.
 
-`text_rewrite_rule`, `call_arg_rewrite`, and `flow` should remain reserved skeleton concepts until the next implementation phase.
+`flow` should remain a reserved skeleton concept until the next implementation
+phase; `call_arg_rewrite` and `text_rewrite` are report-only preview phases.

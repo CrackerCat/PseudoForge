@@ -52,6 +52,8 @@ def build_emission(rule: Rule, match: RuleMatch, report: RuleReport) -> RuleEmis
         return _build_comment_emission(rule, match, report)
     if kind == "call_arg_rewrite":
         return _build_call_arg_rewrite_emission(rule, match, report)
+    if kind == "text_rewrite":
+        return _build_text_rewrite_emission(rule, match, report)
     _reject(report, rule, "unsupported emission kind %s" % kind)
     return None
 
@@ -146,6 +148,43 @@ def _build_call_arg_rewrite_emission(rule: Rule, match: RuleMatch, report: RuleR
     )
 
 
+def _build_text_rewrite_emission(rule: Rule, match: RuleMatch, report: RuleReport) -> RuleEmission | None:
+    emit = rule.emit or {}
+    replacement = _resolve_binding(str(emit.get("replacement", "")), match.bindings)
+    before_regex = str((rule.match or {}).get("before_regex", ""))
+    if not before_regex or not replacement:
+        _reject(report, rule, "text_rewrite before_regex or replacement could not be resolved")
+        return None
+    if emit.get("preview_only") is not True:
+        _reject(report, rule, "text_rewrite must be preview_only")
+        return None
+    if match.span is None or match.span[0] >= match.span[1]:
+        _reject(report, rule, "text_rewrite match span is invalid")
+        return None
+    evidence = _resolve_binding(str(emit.get("evidence", "") or rule.id), match.bindings)
+    requires_comment_kind = _scope_value_payload((rule.scope or {}).get("requires_comment_kind", ""))
+    return RuleEmission(
+        kind="text_rewrite",
+        rule_id=rule.id,
+        confidence=rule.confidence,
+        priority=rule.priority,
+        source_path=rule.source_path,
+        source_label=rule.source_label,
+        source_order=rule.source_order,
+        override_of=rule.override_of,
+        evidence=evidence,
+        payload={
+            "before_regex": before_regex,
+            "replacement": replacement,
+            "span": [match.span[0], match.span[1]],
+            "preview_only": True,
+            "requires_comment_kind": requires_comment_kind,
+            "source": "rule",
+            "evidence": evidence,
+        },
+    )
+
+
 def _resolve_binding(value: str, bindings: dict[str, str]) -> str:
     result = value
     for key, replacement in bindings.items():
@@ -153,6 +192,12 @@ def _resolve_binding(value: str, bindings: dict[str, str]) -> str:
     if re.search(r"\$[A-Za-z_][A-Za-z0-9_]*", result):
         return ""
     return result
+
+
+def _scope_value_payload(value: Any) -> str | list[str]:
+    if isinstance(value, list):
+        return [str(item) for item in value]
+    return str(value)
 
 
 def _reject(report: RuleReport, rule: Rule, reason: str) -> None:
@@ -163,7 +208,7 @@ def _reject(report: RuleReport, rule: Rule, reason: str) -> None:
             "source": rule.source_label or rule.pack_id,
         }
     )
-    if rule.phase == "call_arg_rewrite" or str((rule.emit or {}).get("kind", "")) == "call_arg_rewrite":
+    if _is_rewrite_rule(rule):
         report.rewrite_emissions.append(
             {
                 "rule_id": rule.id,
@@ -173,3 +218,8 @@ def _reject(report: RuleReport, rule: Rule, reason: str) -> None:
                 "source": rule.source_label or rule.pack_id,
             }
         )
+
+
+def _is_rewrite_rule(rule: Rule) -> bool:
+    kind = str((rule.emit or {}).get("kind", ""))
+    return rule.phase in {"call_arg_rewrite", "text_rewrite"} or kind in {"call_arg_rewrite", "text_rewrite"}

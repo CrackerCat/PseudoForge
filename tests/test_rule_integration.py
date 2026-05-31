@@ -12,6 +12,8 @@ from tests.helpers import (
     _call_arg_rewrite_rule,
     _rename_rule,
     _rule_pack,
+    _semantic_comment_rule,
+    _text_rewrite_rule,
 )
 
 
@@ -51,6 +53,37 @@ __int64 __fastcall ProjectCallArgReportSample(void *inputBuffer)
             self.assertEqual("call_arg_rewrite", rewrites[0]["kind"])
             self.assertTrue(rewrites[0]["preview_only"])
             self.assertEqual("ProbeForRead", rewrites[0]["payload"]["function_name"])
+            self.assertFalse(any(item.source == "rule" for item in plan.renames))
+            self.assertFalse(any("Deterministic rule emission rejected" in warning for warning in plan.warnings))
+            rendered = render_cleaned_pseudocode(capture, plan)
+            self.assertIn("ProbeForRead(inputBuffer, 8, 1);", rendered)
+            self.assertNotIn("sizeof(*inputBuffer)", rendered)
+
+    def test_build_clean_plan_reports_v2_text_rewrites_without_rendering_them(self) -> None:
+        sample = """
+__int64 __fastcall ProjectTextRewriteReportSample(void *inputBuffer)
+{
+  ProbeForRead(inputBuffer, 8, 1);
+  return 0;
+}
+"""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            rules_dir = temp_path / "pseudoforge_rules"
+            rules_dir.mkdir()
+            (rules_dir / "text_rewrite_report.json").write_text(
+                json.dumps(_rule_pack([_semantic_comment_rule(), _text_rewrite_rule()], schema_version=2)),
+                encoding="utf-8",
+            )
+            capture = capture_from_pseudocode(sample, source_path=str(temp_path / "sample.cpp"))
+            plan = build_clean_plan(capture, rule_dirs=[rules_dir])
+
+            rewrites = [item for item in plan.rule_report["rewrite_emissions"] if item["kind"] == "text_rewrite"]
+            self.assertEqual(1, len(rewrites))
+            self.assertEqual("applied", rewrites[0]["status"])
+            self.assertTrue(rewrites[0]["preview_only"])
+            self.assertEqual("test_semantic_gate", rewrites[0]["payload"]["requires_comment_kind"])
+            self.assertIn("span", rewrites[0]["payload"])
             self.assertFalse(any(item.source == "rule" for item in plan.renames))
             self.assertFalse(any("Deterministic rule emission rejected" in warning for warning in plan.warnings))
             rendered = render_cleaned_pseudocode(capture, plan)

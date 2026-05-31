@@ -392,6 +392,16 @@ P1 deterministic rules v2 preview boundary update:
 - `build_clean_plan()` runs the `call_arg_rewrite` phase for reporting only;
   accepted rewrite candidates remain out of rename, comment, pseudocode, and
   IDB-write paths.
+- Rule packs can also use `schema_version: 2` for preview-only `text_rewrite`
+  emissions gated by `requires_comment_kind`.
+- `text_rewrite` rules require explicit `before_regex`, `replacement`, and
+  `preview_only: true` fields.
+- Runtime support records `RuleEmission(kind="text_rewrite")` candidates in
+  `rewrite_emissions` and resolves overlapping spans as `applied`/`shadowed`
+  report entries only.
+- `build_clean_plan()` runs the `text_rewrite` phase after semantic comments
+  for reporting only; accepted candidates do not change rendered pseudocode or
+  any IDB-write path.
 - Builtin v2 report-only rules now mirror the low-risk
   `PsSetCreateProcessNotifyRoutine`/`PspSetCreateProcessNotifyRoutine`
   BOOLEAN remove-argument cleanup family for parity comparison with the
@@ -557,7 +567,7 @@ The current implementation state reflects the `NtSetSystemInformation` and `NtSe
 
 Deterministic rules matching engine v1 is implemented:
 
-- `deterministic_rules_matching_engine_design.md` remains the phased design document for later `call_arg_rewrite`, `text_rewrite`, and `flow` migration.
+- `deterministic_rules_matching_engine_design.md` remains the phased design document for later `flow` migration and hard-coded rewrite parity work.
 - Current v1 keeps kernel API, kernel rewrites, cleanup rewrite, and flow recovery behavior unchanged except for additive rule reporting.
 - Rule packs are loaded from builtin, project-local, and user-global directories, with project-local resolution based on the analyzed source/binary path instead of process CWD only.
 - Rule pack loading is cached by directory signature for session reuse while still picking up file additions, removals, size changes, and timestamp changes.
@@ -1170,7 +1180,7 @@ Keep LLM path enabled with -LlmProvider codex_cli -LlmModel gpt-5.5.
 
 ## Next Steps
 
-1. Extend deterministic rules matching engine beyond v1 with `call_arg_rewrite`, `text_rewrite`, and `flow` phases.
+1. Extend deterministic rules matching engine beyond v2 preview reports with a safe `flow` phase when branch evidence is strong enough.
 2. Improve switch body reconstruction for shared/fallthrough branch paths.
 3. Add a richer dockable side-by-side preview panel.
 4. Manually validate identity-backed local variable rename application inside

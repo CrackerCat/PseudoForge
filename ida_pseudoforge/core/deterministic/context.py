@@ -83,6 +83,7 @@ class RuleContext:
     call_sites: list[CallSiteFact] = field(default_factory=list)
     labels: list[LabelFact] = field(default_factory=list)
     literals: list[LiteralFact] = field(default_factory=list)
+    semantic_comment_kinds: set[str] = field(default_factory=set)
 
 
 _ASSIGNMENT_RE = re.compile(
@@ -97,6 +98,7 @@ def build_rule_context(
     capture: FunctionCapture,
     text: str | None = None,
     profile_function_lookup: Callable[[str], dict[str, Any]] | None = None,
+    semantic_comments: list[dict[str, Any]] | None = None,
 ) -> RuleContext:
     rule_text = capture.pseudocode if text is None else text
     lvar_facts = _lvar_facts(capture)
@@ -114,6 +116,7 @@ def build_rule_context(
         call_sites=_call_site_facts(rule_text or ""),
         labels=_label_facts(rule_text or ""),
         literals=_literal_facts(rule_text or ""),
+        semantic_comment_kinds=_semantic_comment_kinds(semantic_comments),
     )
 
 
@@ -233,6 +236,16 @@ def _literal_facts(text: str) -> list[LiteralFact]:
 
 def _literal_values(text: str) -> list[str]:
     return [match.group(0) for match in _LITERAL_RE.finditer(text)]
+
+
+def _semantic_comment_kinds(comments: list[dict[str, Any]] | None) -> set[str]:
+    if not comments:
+        return set()
+    return {
+        str(comment.get("kind", "")).strip()
+        for comment in comments
+        if isinstance(comment, dict) and str(comment.get("kind", "")).strip()
+    }
 
 
 def _mask_quoted_text(text: str) -> str:

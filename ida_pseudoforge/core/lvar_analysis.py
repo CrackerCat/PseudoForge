@@ -61,6 +61,7 @@ def build_clean_plan(
         + _rule_semantic_comments(capture, rename_map, rule_engine, rule_report)
     )
     _rule_call_arg_rewrite_report(capture, rename_map, rule_engine, rule_report)
+    _rule_text_rewrite_report(capture, rename_map, comments, rule_engine, rule_report)
     combined_warnings = _dedupe_warnings(
         _filter_shadowed_rename_warnings(
             kernel_warnings(capture) + llm_warnings + warnings + _rule_report_warnings(rule_report),
@@ -142,6 +143,26 @@ def _rule_call_arg_rewrite_report(
     engine.run(
         build_rule_context(capture, text=text, profile_function_lookup=kernel_function_metadata),
         phases={"call_arg_rewrite"},
+        report=report,
+    )
+
+
+def _rule_text_rewrite_report(
+    capture: FunctionCapture,
+    rename_map: dict[str, str],
+    comments: list[dict[str, Any]],
+    engine: RuleEngine,
+    report: RuleReport,
+) -> None:
+    text = safe_identifier_replace(capture.pseudocode, rename_map)
+    engine.run(
+        build_rule_context(
+            capture,
+            text=text,
+            profile_function_lookup=kernel_function_metadata,
+            semantic_comments=comments,
+        ),
+        phases={"text_rewrite"},
         report=report,
     )
 

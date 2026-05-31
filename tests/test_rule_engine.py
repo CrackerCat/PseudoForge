@@ -160,6 +160,102 @@ __int64 __fastcall RuleCallArgRejectedSample(void *inputBuffer)
         self.assertIn("argument_index is invalid", result.report.rewrite_emissions[0]["reason"])
         self.assertTrue(any("argument_index is invalid" in item["reason"] for item in result.report.rejected_emissions))
 
+    def test_rule_engine_reports_v2_text_rewrite_span_conflicts(self) -> None:
+        capture = capture_from_pseudocode(
+            """
+__int64 __fastcall RuleTextRewriteShadowSample(void *inputBuffer)
+{
+  ProbeForRead(inputBuffer, 8, 1);
+  return 0;
+}
+"""
+        )
+        pack = RulePack(
+            schema_version=2,
+            id="test.rules",
+            description="test",
+            rules=[
+                Rule(
+                    id="test.text.low",
+                    phase="text_rewrite",
+                    priority=10,
+                    confidence=0.95,
+                    scope={"requires_comment_kind": "test_semantic_gate", "text_contains": "ProbeForRead"},
+                    match={"before_regex": r"ProbeForRead\((?P<arg>inputBuffer), 8, 1\)"},
+                    emit={
+                        "kind": "text_rewrite",
+                        "replacement": "ProbeForRead($arg, sizeof(low), 1)",
+                        "preview_only": True,
+                    },
+                ),
+                Rule(
+                    id="test.text.high",
+                    phase="text_rewrite",
+                    priority=90,
+                    confidence=0.80,
+                    scope={"requires_comment_kind": "test_semantic_gate", "text_contains": "ProbeForRead"},
+                    match={"before_regex": r"ProbeForRead\((?P<arg>inputBuffer), 8, 1\)"},
+                    emit={
+                        "kind": "text_rewrite",
+                        "replacement": "ProbeForRead($arg, sizeof(*inputBuffer), 1)",
+                        "preview_only": True,
+                    },
+                ),
+            ],
+        )
+        context = build_rule_context(capture, semantic_comments=[{"kind": "test_semantic_gate"}])
+
+        result = RuleEngine([pack]).run(context, phases={"text_rewrite"})
+
+        self.assertEqual(1, len(result.emissions))
+        self.assertEqual("test.text.high", result.emissions[0].rule_id)
+        self.assertEqual("text_rewrite", result.emissions[0].kind)
+        self.assertEqual("ProbeForRead(inputBuffer, sizeof(*inputBuffer), 1)", result.emissions[0].payload["replacement"])
+        statuses = {item["rule_id"]: item["status"] for item in result.report.rewrite_emissions}
+        self.assertEqual("applied", statuses["test.text.high"])
+        self.assertEqual("shadowed", statuses["test.text.low"])
+        shadowed = next(item for item in result.report.rewrite_emissions if item["rule_id"] == "test.text.low")
+        self.assertEqual("test.text.high", shadowed["winner_rule_id"])
+        self.assertIn("span conflict", shadowed["reason"])
+        self.assertEqual([], emissions_to_renames(result.emissions))
+        self.assertEqual([], emissions_to_comments(result.emissions))
+
+    def test_rule_engine_text_rewrite_requires_semantic_comment_gate(self) -> None:
+        capture = capture_from_pseudocode(
+            """
+__int64 __fastcall RuleTextRewriteGateSample(void *inputBuffer)
+{
+  ProbeForRead(inputBuffer, 8, 1);
+  return 0;
+}
+"""
+        )
+        pack = RulePack(
+            schema_version=2,
+            id="test.rules",
+            description="test",
+            rules=[
+                Rule(
+                    id="test.text.gated",
+                    phase="text_rewrite",
+                    priority=50,
+                    confidence=0.90,
+                    scope={"requires_comment_kind": "missing_gate", "text_contains": "ProbeForRead"},
+                    match={"before_regex": r"ProbeForRead\((?P<arg>inputBuffer), 8, 1\)"},
+                    emit={
+                        "kind": "text_rewrite",
+                        "replacement": "ProbeForRead($arg, sizeof(*inputBuffer), 1)",
+                        "preview_only": True,
+                    },
+                )
+            ],
+        )
+
+        result = RuleEngine([pack]).run(build_rule_context(capture), phases={"text_rewrite"})
+
+        self.assertEqual([], result.emissions)
+        self.assertEqual([], result.report.rewrite_emissions)
+
     def test_rule_engine_call_arg_gates_match_same_call_site(self) -> None:
         capture = capture_from_pseudocode(
             """

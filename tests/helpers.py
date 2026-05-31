@@ -80,6 +80,55 @@ def _call_arg_rewrite_rule() -> dict:
     }
 
 
+def _semantic_comment_rule(comment_kind: str = "test_semantic_gate") -> dict:
+    return {
+        "id": "test.semantic_comment.v1",
+        "phase": "semantic_comment",
+        "priority": 80,
+        "confidence": 0.90,
+        "scope": {
+            "text_contains": "ProbeForRead"
+        },
+        "match": {
+            "text_contains": "ProbeForRead"
+        },
+        "emit": {
+            "kind": "semantic_comment",
+            "comment_kind": comment_kind,
+            "text": "test semantic gate",
+            "evidence": "test semantic gate"
+        },
+    }
+
+
+def _text_rewrite_rule(
+    rule_id: str = "test.text_rewrite.v2",
+    before_regex: str = r"ProbeForRead\((?P<arg>inputBuffer), 8, 1\)",
+    replacement: str = "ProbeForRead($arg, sizeof(*inputBuffer), 1)",
+    comment_kind: str = "test_semantic_gate",
+    priority: int = 50,
+) -> dict:
+    return {
+        "id": rule_id,
+        "phase": "text_rewrite",
+        "priority": priority,
+        "confidence": 0.90,
+        "scope": {
+            "requires_comment_kind": comment_kind,
+            "text_contains": "ProbeForRead"
+        },
+        "match": {
+            "before_regex": before_regex
+        },
+        "emit": {
+            "kind": "text_rewrite",
+            "replacement": replacement,
+            "preview_only": True,
+            "evidence": "preview-only text rewrite"
+        },
+    }
+
+
 def _call_arg_gate_match(
     function_name: str = "ProbeForRead",
     count: int = 3,

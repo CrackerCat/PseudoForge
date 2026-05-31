@@ -149,13 +149,17 @@ Implemented:
    - Semantic comment rules.
    - Fail-closed validator CLI.
    - Per-function rule report export.
+25. Deterministic rules matching engine v2 preview/report phases.
+   - Preview-only `call_arg_rewrite` reports.
+   - Preview-only `text_rewrite` reports with semantic comment gates and span
+     conflict detection.
 
 Still pending:
 
 1. Full switch body reconstruction for shared and fallthrough branches.
 2. Manual IDA validation and true object-level ctree rename application beyond the current identity preflight gates.
 3. Richer dockable side-by-side preview panel.
-4. Deterministic rule phase expansion for `call_arg_rewrite`, `text_rewrite`, and `flow`.
+4. Deterministic rule phase expansion for `flow` and broader parity migration.
 5. Wider profile coverage from real target builds.
 
 Detailed implementation tracking lives in [pseudoforge_implementation_status.md](pseudoforge_implementation_status.md).
@@ -1300,27 +1304,31 @@ call_arg_count
 call_arg_literal
 ```
 
-Supported emissions:
+Supported v1 emissions:
 
 ```text
 rename
 semantic_comment
 ```
 
-Schema version 2 also supports preview-only `call_arg_rewrite` emissions.
+Schema version 2 also supports preview-only `call_arg_rewrite` and
+`text_rewrite` emissions.
 The builtin v2 report-only rules currently mirror the low-risk
 `PsSetCreateProcessNotifyRoutine`/`PspSetCreateProcessNotifyRoutine` BOOLEAN
 remove-argument cleanup so reports can compare rule candidates against the
-existing hard-coded kernel API renderer path.
+existing hard-coded kernel API renderer path. `text_rewrite` candidates require
+`before_regex`, `replacement`, `preview_only: true`, and a
+`requires_comment_kind` semantic gate.
 
 Rule conflict policy:
 
 1. Higher `priority` and `confidence` sort rules earlier for matching.
 2. Rename emissions for the same target are resolved before normal rename validation.
 3. Preview-only `call_arg_rewrite` emissions for the same function argument are resolved before report export.
-4. `override_of` is the strongest conflict signal; otherwise `priority` wins before `confidence`.
-5. Rule-based renames always use source `rule`; JSON cannot spoof trusted internal sources such as `kernel-status` or `semantic-rule`.
-6. Rule report paths are redacted to labels such as `builtin/local_renames.json`, `project/foo.json`, or `user/foo.json`.
+4. Preview-only `text_rewrite` emissions with overlapping spans are resolved before report export.
+5. `override_of` is the strongest conflict signal; otherwise `priority` wins before `confidence`.
+6. Rule-based renames always use source `rule`; JSON cannot spoof trusted internal sources such as `kernel-status` or `semantic-rule`.
+7. Rule report paths are redacted to labels such as `builtin/local_renames.json`, `project/foo.json`, or `user/foo.json`.
 
 Run with additional rules and write a report:
 
@@ -1354,8 +1362,8 @@ Safety boundaries:
 5. Invalid regexes, invalid scope regexes, ambiguous primary regex matchers, empty matches, empty text gates, boolean numeric fields, and missing emit fields are rejected at load time.
 6. Runtime exceptions reject only the offending rule and analysis continues.
 7. Rule-based rename suggestions still pass through `validate_renames()`.
-8. `call_arg_rewrite` output is report-only today; it is not converted into rename/comment plan output and cannot modify IDB state.
-9. Text and control-flow rewrite rules are out of v1 scope and do not modify IDB state.
+8. `call_arg_rewrite` and `text_rewrite` output is report-only today; it is not converted into rename/comment plan output and cannot modify IDB state.
+9. Control-flow rewrite rules are out of v2 preview scope and do not modify IDB state.
 
 ## Validation
 
@@ -1490,7 +1498,7 @@ Rename application fails:
 
 ## Next Work
 
-1. Design deterministic rules matching engine v2 scope and migrate `call_arg_rewrite`, `text_rewrite`, and `flow`.
+1. Continue deterministic rules v2 with a safe `flow` phase after stronger branch evidence exists.
 2. Improve shared and fallthrough branch body reconstruction.
 3. Manually validate identity-backed rename tracking and investigate true object-level ctree rename application.
 4. Implement a dockable side-by-side preview panel.
