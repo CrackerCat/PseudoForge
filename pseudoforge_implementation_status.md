@@ -175,7 +175,7 @@ Implemented in this folder:
    - `tests/test_pseudoforge_free_cli.py`
    - `tests/test_release_pseudoforge.py`
    - renderer golden snapshots under `tests/snapshots`
-   - current suite covers 200 unit tests
+   - current suite covers 201 unit tests
 
 ## Latest Implementation Notes
 
@@ -234,6 +234,14 @@ P1 deterministic rules v2 preview boundary update:
   convert it into rename/comment plan outputs or any IDB write path.
 - `deterministic_rules_matching_engine_design.md` documents the v2
   preview/export-only boundary.
+
+P2 RuleContext call-site facts update:
+
+- `RuleContext.call_sites` now records argument lists, absolute argument spans,
+  and line indexes.
+- Call-site argument parsing reuses shared parenthesis matching and parameter
+  splitting helpers, including nested calls and comma-containing strings.
+- Malformed call text keeps a partial call-site fact without raising.
 
 P0 rename identity hardening update:
 

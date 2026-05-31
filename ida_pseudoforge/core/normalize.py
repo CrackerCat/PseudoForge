@@ -82,12 +82,17 @@ def find_matching_paren(text: str, open_index: int) -> int:
 
 
 def split_parameters(parameter_text: str) -> list[str]:
-    params = []
+    return [item for item, _span in split_parameters_with_spans(parameter_text)]
+
+
+def split_parameters_with_spans(parameter_text: str) -> list[tuple[str, tuple[int, int]]]:
+    params: list[tuple[str, tuple[int, int]]] = []
     current = []
+    current_start = 0
     depth = 0
     quote = ""
     escape = False
-    for char in parameter_text:
+    for index, char in enumerate(parameter_text):
         if quote:
             current.append(char)
             if escape:
@@ -108,14 +113,23 @@ def split_parameters(parameter_text: str) -> list[str]:
         if char == "," and depth == 0:
             item = "".join(current).strip()
             if item:
-                params.append(item)
+                params.append((item, _trimmed_span(parameter_text, current_start, index)))
             current = []
+            current_start = index + 1
             continue
         current.append(char)
     item = "".join(current).strip()
     if item:
-        params.append(item)
+        params.append((item, _trimmed_span(parameter_text, current_start, len(parameter_text))))
     return params
+
+
+def _trimmed_span(text: str, start: int, end: int) -> tuple[int, int]:
+    while start < end and text[start].isspace():
+        start += 1
+    while end > start and text[end - 1].isspace():
+        end -= 1
+    return (start, end)
 
 
 def extract_function_signature(pseudocode: str) -> str:

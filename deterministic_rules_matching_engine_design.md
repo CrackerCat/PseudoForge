@@ -205,6 +205,10 @@ class RuleContext:
     literals: list[LiteralFact]
 ```
 
+`CallSiteFact` records the call name, full call span, argument list, absolute
+argument spans, and zero-based line index. Malformed calls keep a partial fact
+with empty arguments rather than failing context construction.
+
 The first implementation can use regex-based fact extraction. Ctree-identity based facts can be added later.
 
 ## Rule Phases

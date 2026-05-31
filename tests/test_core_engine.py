@@ -1778,6 +1778,36 @@ __int64 __fastcall RuleCallArgSample(void *inputBuffer)
         self.assertEqual([], emissions_to_renames(result.emissions))
         self.assertEqual([], emissions_to_comments(result.emissions))
 
+    def test_rule_context_call_site_facts_include_arguments_and_spans(self):
+        capture = capture_from_pseudocode(
+            """
+__int64 __fastcall RuleContextCallSample(void *inputBuffer)
+{
+  ProbeForRead(inputBuffer, sizeof("a,b"), MmGetSystemRoutineAddress(&name));
+  BrokenCall(inputBuffer, 8;
+  return 0;
+}
+"""
+        )
+
+        context = build_rule_context(capture)
+
+        probe = next(item for item in context.call_sites if item.name == "ProbeForRead")
+        self.assertIn("ProbeForRead", context.lines[probe.line_index])
+        self.assertEqual(
+            ["inputBuffer", 'sizeof("a,b")', "MmGetSystemRoutineAddress(&name)"],
+            probe.arguments,
+        )
+        self.assertEqual(
+            [capture.pseudocode[start:end] for start, end in probe.argument_spans],
+            probe.arguments,
+        )
+        self.assertEqual(capture.pseudocode[probe.span[0]:probe.span[1]].split("(", 1)[0], "ProbeForRead")
+
+        broken = next(item for item in context.call_sites if item.name == "BrokenCall")
+        self.assertEqual([], broken.arguments)
+        self.assertEqual([], broken.argument_spans)
+
     def test_rule_engine_assignment_regex_binding_and_scope_gate(self):
         capture = capture_from_pseudocode(
             """

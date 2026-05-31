@@ -449,9 +449,28 @@ python -B -m unittest discover -s tests -v
 
 ## P2: Richer RuleContext And Dataflow Facts
 
+Status: In progress.
+
+Completed:
+
+- [x] Added call-site argument lists, absolute argument spans, and line indexes
+  to `RuleContext.call_sites`.
+- [x] Reused shared parenthesis matching and parameter splitting helpers for
+  nested calls and comma-containing strings.
+- [x] Added coverage for nested call arguments, string commas, absolute spans,
+  and malformed call text fallback.
+
+Remaining:
+
+- [ ] Add typed assignment facts for RHS identifiers, literals, and call
+  expressions.
+- [ ] Add lvar type facts from `FunctionCapture.lvars`.
+- [ ] Add profile facts for known functions and enums.
+- [ ] Add rule match gates for argument count and literal argument values.
+
 ### Current Evidence
 
-- `RuleContext` currently indexes text with regex facts only.
+- `RuleContext` now indexes regex facts plus call-site argument facts.
 - Existing render and kernel rewrite code already contains argument splitting,
   call-argument parsing, literal parsing, and helper-specific heuristics.
 
