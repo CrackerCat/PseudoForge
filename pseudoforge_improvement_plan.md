@@ -747,6 +747,8 @@ Completed:
   `tests/test_render_labels.py`.
 - [x] Moved the shared NtSet system-information sample from
   `tests/test_core_engine.py` into `tests/fixtures/ntset_samples.py`.
+- [x] Moved snapshot-shared DriverEntry, IOCTL dispatch, and single-line style
+  samples into `tests/fixtures/snapshot_samples.py`.
 
 Remaining:
 
@@ -813,6 +815,8 @@ Remaining:
   `tests/test_render_labels.py`.
 - Shared NtSet system-information sample coverage now uses
   `tests/fixtures/ntset_samples.py`.
+- Snapshot-shared DriverEntry, IOCTL dispatch, and single-line style samples
+  now use `tests/fixtures/snapshot_samples.py`.
 - Firmware handler kernel-driver semantics coverage now lives in
   `tests/test_render_kernel_hints.py`.
 - Multiline-condition brace and single-line if-body style coverage now lives in

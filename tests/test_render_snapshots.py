@@ -11,9 +11,11 @@ from ida_pseudoforge.core.capture import capture_from_pseudocode
 from ida_pseudoforge.core.lvar_analysis import build_clean_plan
 from ida_pseudoforge.core.render import render_cleaned_pseudocode
 from tests.fixtures.ntset_samples import NTSET_SYSTEM_INFORMATION_SAMPLE
-from tests.test_render_driver_entry import DRIVER_ENTRY_SAMPLE
-from tests.test_render_ioctl import IOCTL_DISPATCH_SAMPLE
-from tests.test_render_style import SINGLE_LINE_IF_SAMPLE
+from tests.fixtures.snapshot_samples import (
+    DRIVER_ENTRY_SAMPLE,
+    IOCTL_DISPATCH_SAMPLE,
+    SINGLE_LINE_IF_SAMPLE,
+)
 
 
 SNAPSHOT_DIR = Path(__file__).with_name("snapshots")

@@ -274,6 +274,9 @@ P1 renderer snapshot protection update:
 - Shared NtSet system-information sample coverage now uses
   `tests/fixtures/ntset_samples.py` instead of importing from
   `tests/test_core_engine.py`.
+- Snapshot-shared DriverEntry, IOCTL dispatch, and single-line style samples
+  now use `tests/fixtures/snapshot_samples.py` instead of importing from
+  renderer test modules.
 - Firmware handler kernel-driver semantics regression now lives in
   `tests/test_render_kernel_hints.py`.
 - Multiline-condition brace and single-line if-body style regressions now live
@@ -828,6 +831,15 @@ NtSet fixture split validation:
 
 ```text
 python -B -m unittest tests.test_core_engine tests.test_render_snapshots -v: 5 tests OK
+python -B -m unittest discover -s tests -v: 265 tests OK
+python -B -m compileall .\pseudoforge.py .\ida_pseudoforge .\tests .\tools: passed
+git diff --check -- .: passed
+```
+
+Snapshot fixture split validation:
+
+```text
+python -B -m unittest tests.test_render_driver_entry tests.test_render_ioctl tests.test_render_style tests.test_render_snapshots -v: 33 tests OK
 python -B -m unittest discover -s tests -v: 265 tests OK
 python -B -m compileall .\pseudoforge.py .\ida_pseudoforge .\tests .\tools: passed
 git diff --check -- .: passed

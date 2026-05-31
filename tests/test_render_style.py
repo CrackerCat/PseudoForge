@@ -6,6 +6,7 @@ from ida_pseudoforge.core.capture import capture_from_pseudocode
 from ida_pseudoforge.core.lvar_analysis import build_clean_plan
 from ida_pseudoforge.core.render import render_cleaned_pseudocode
 from ida_pseudoforge.core.render_style import enforce_generated_code_style
+from tests.fixtures.snapshot_samples import SINGLE_LINE_IF_SAMPLE
 
 
 STYLE_SAMPLE = r"""
@@ -61,20 +62,6 @@ __int64 __fastcall MultiLineConditionSample(int a1, int a2, int a3)
   {
     return 1;
   }
-  return v1;
-}
-"""
-
-
-SINGLE_LINE_IF_SAMPLE = r"""
-__int64 __fastcall SingleLineIfSample(int a1)
-{
-  int v1;
-
-  v1 = 0;
-  if ( a1 )
-    *(_BYTE *)(v1 + 10) = 1;
-  v1 = ZwLoadDriver(&DriverServiceName);
   return v1;
 }
 """

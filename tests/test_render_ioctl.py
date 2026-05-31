@@ -15,6 +15,7 @@ from ida_pseudoforge.core.render_ioctl import (
     rewrite_device_control_system_buffer,
     rewrite_irp_stack_location_fields,
 )
+from tests.fixtures.snapshot_samples import IOCTL_DISPATCH_SAMPLE
 
 
 def _ioctl_plan(case_value: int, dispatcher: str = "ioControlCode") -> CleanPlan:
@@ -40,54 +41,6 @@ def _irp_capture(text: str) -> FunctionCapture:
         prototype="NTSTATUS __fastcall DispatchDeviceControl(PDEVICE_OBJECT deviceObject, PIRP irp)",
         pseudocode=text,
     )
-
-
-IOCTL_DISPATCH_SAMPLE = r"""
-__int64 __fastcall sub_1400013F0(__int64 a1, IRP *a2)
-{
-  int status; // [rsp+30h] [rbp-58h]
-  __int64 v4; // [rsp+38h] [rbp-50h]
-  unsigned int v5; // [rsp+44h] [rbp-44h]
-  unsigned int v6; // [rsp+48h] [rbp-40h]
-  struct _IRP *MasterIrp; // [rsp+58h] [rbp-30h]
-  unsigned int v9; // [rsp+60h] [rbp-28h]
-  _DWORD *v10; // [rsp+68h] [rbp-20h]
-
-  v4 = *(_QWORD *)(a1 + 64);
-  v10 = (_DWORD *)sub_140003B30(a2);
-  MasterIrp = a2->AssociatedIrp.MasterIrp;
-  v6 = v10[4];
-  v5 = v10[2];
-  v9 = v10[6];
-  switch ( v9 )
-  {
-    case 0x83376004:
-      status = 0;
-      break;
-    case 0x8337A008:
-      status = 0;
-      break;
-    case 0x8337E00C:
-      status = 0;
-      break;
-    case 0x8337E010:
-      status = 0;
-      break;
-    default:
-      status = STATUS_INVALID_DEVICE_REQUEST;
-      break;
-  }
-  switch ( status )
-  {
-    case 0x83376004:
-      status = 1;
-      break;
-  }
-  a2->IoStatus.Status = status;
-  IofCompleteRequest(a2, 0);
-  return (unsigned int)status;
-}
-"""
 
 
 IOCTL_COMPLETION_LABEL_SAMPLE = r"""
