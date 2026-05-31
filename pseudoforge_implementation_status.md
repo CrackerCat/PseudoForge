@@ -200,6 +200,7 @@ Implemented in this folder:
    - `tests/test_render_style.py`
    - `tests/test_render_warnings.py`
    - `tests/test_render_zw.py`
+   - `tests/test_rule_engine.py`
    - `tests/test_rule_pack_validator.py`
    - `tests/test_rule_context.py`
    - `tests/test_ui_preview.py`
@@ -401,6 +402,8 @@ P2 switch body reporting update:
 - Deterministic rule-pack validator regressions now live in
   `tests/test_rule_pack_validator.py`, with shared test rule builders in
   `tests/rule_test_helpers.py`.
+- Deterministic RuleEngine emission, gate, conflict, and runtime-error
+  regressions now live in `tests/test_rule_engine.py`.
 
 P0 rename identity hardening update:
 
