@@ -463,16 +463,19 @@ Completed:
   pure RHS call expressions.
 - [x] Added lvar type, argument, location, index, and identity facts from
   `FunctionCapture.lvars`.
+- [x] Added v2 rule match gates for call argument count and literal argument
+  values without regex.
 
 Remaining:
 
 - [ ] Add profile facts for known functions and enums.
-- [ ] Add rule match gates for argument count and literal argument values.
 
 ### Current Evidence
 
 - `RuleContext` now indexes regex facts plus call-site, assignment dataflow, and
   local-variable metadata facts.
+- V2 rules can gate matches on exact call-site argument count and exact literal
+  argument values.
 - Existing render and kernel rewrite code already contains argument splitting,
   call-argument parsing, literal parsing, and helper-specific heuristics.
 

@@ -111,6 +111,7 @@ Implemented in this folder:
    - project-local `.\pseudoforge_rules\*.json` and user-global `%APPDATA%\PseudoForge\rules\*.json` loading
    - v1 active phases: `rename` and `semantic_comment`
    - v1 supported match operators: `regex`, `assignment_regex`, `text_contains`, and `text_contains_all`
+   - v2 supported match gates add `call_arg_count` and `call_arg_literal` for exact call-site argument count and literal argument value checks
    - builtin rules mirror low-risk local rename, assignment rename, and call-presence semantic comment rules while keeping existing hard-coded deterministic passes in place
    - rule-based rename suggestions still pass through `validate_renames()`
    - export bundles include `<function>.rule-report.json`
@@ -175,7 +176,7 @@ Implemented in this folder:
    - `tests/test_pseudoforge_free_cli.py`
    - `tests/test_release_pseudoforge.py`
    - renderer golden snapshots under `tests/snapshots`
-   - current suite covers 203 unit tests
+   - current suite covers 205 unit tests
 
 ## Latest Implementation Notes
 
@@ -250,6 +251,8 @@ P2 RuleContext call-site facts update:
   including type text, argument status, index, location, and identity metadata.
 - `lvar_types` and `arg_names` indexes provide direct access to typed locals
   and captured arguments without reparsing pseudocode declarations.
+- V2 rule matching now supports `call_arg_count` and `call_arg_literal` gates
+  over the same call site, keeping v1 match operators unchanged.
 
 P0 rename identity hardening update:
 

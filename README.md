@@ -1229,12 +1229,21 @@ text_contains
 text_contains_all
 ```
 
+Schema version 2 also supports preview/export-oriented call argument gates:
+
+```text
+call_arg_count
+call_arg_literal
+```
+
 Supported emissions:
 
 ```text
 rename
 semantic_comment
 ```
+
+Schema version 2 also supports preview-only `call_arg_rewrite` emissions.
 
 Rule conflict policy:
 

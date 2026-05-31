@@ -39,12 +39,19 @@ SUPPORTED_SCOPE_OPERATORS = {
     "text_contains_all",
 }
 
-SUPPORTED_MATCH_OPERATORS = {
+SUPPORTED_V1_MATCH_OPERATORS = {
     "regex",
     "assignment_regex",
     "text_contains",
     "text_contains_all",
 }
+
+SUPPORTED_V2_MATCH_OPERATORS = SUPPORTED_V1_MATCH_OPERATORS | {
+    "call_arg_count",
+    "call_arg_literal",
+}
+
+SUPPORTED_MATCH_OPERATORS = SUPPORTED_V2_MATCH_OPERATORS
 
 FORBIDDEN_RULE_KEYS = {
     "command",

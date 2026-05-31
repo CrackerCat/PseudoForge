@@ -421,6 +421,13 @@ text_contains
 text_contains_all
 ```
 
+Supported v2 match operators add:
+
+```text
+call_arg_count
+call_arg_literal
+```
+
 Operator behavior:
 
 - `calls_any`: passes if any listed call appears in the indexed call set.
@@ -432,6 +439,10 @@ Operator behavior:
 - `text_contains_all`: requires every listed substring.
 - `regex`: runs against normalized text and can expose named bindings.
 - `assignment_regex`: runs against normalized text and is intended for assignment-style binding extraction.
+- `call_arg_count`: matches a specific call site by function name and exact
+  argument count.
+- `call_arg_literal`: matches a specific call site by function name, argument
+  index, and exact argument text.
 
 The initial implementation does not build a nested expression parser. Where
 call argument parsing is needed, rule phases should reuse the shared

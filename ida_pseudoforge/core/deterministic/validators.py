@@ -7,12 +7,13 @@ from typing import Any
 
 from ida_pseudoforge.core.deterministic.schema import (
     FORBIDDEN_RULE_KEYS,
-    SUPPORTED_MATCH_OPERATORS,
     SUPPORTED_SCHEMA_VERSION,
     SUPPORTED_SCHEMA_VERSIONS,
     SUPPORTED_V1_EMISSION_KINDS,
+    SUPPORTED_V1_MATCH_OPERATORS,
     SUPPORTED_V1_PHASES,
     SUPPORTED_V2_EMISSION_KINDS,
+    SUPPORTED_V2_MATCH_OPERATORS,
     SUPPORTED_V2_PHASES,
     SUPPORTED_SCOPE_OPERATORS,
 )
@@ -124,11 +125,12 @@ def _validate_rule(rule: dict[str, Any], prefix: str, schema_version: int) -> li
     if not isinstance(match, dict):
         errors.append("%s.match must be an object" % prefix)
         match = {}
-    errors.extend(_validate_operator_map(match, SUPPORTED_MATCH_OPERATORS, "%s.match" % prefix))
+    supported_match_operators = _supported_match_operators(schema_version)
+    errors.extend(_validate_operator_map(match, supported_match_operators, "%s.match" % prefix))
     errors.extend(_validate_regexes(match, "%s.match" % prefix))
     errors.extend(_validate_match_values(match, "%s.match" % prefix))
     errors.extend(_validate_match_shape(match, "%s.match" % prefix))
-    if not any(key in match for key in SUPPORTED_MATCH_OPERATORS):
+    if not any(key in match for key in supported_match_operators):
         errors.append("%s.match must define at least one supported operator" % prefix)
 
     emit = rule.get("emit")
@@ -182,6 +184,10 @@ def _validate_match_values(match: dict[str, Any], prefix: str) -> list[str]:
         errors.extend(_validate_non_empty_string(match.get("text_contains"), "%s.text_contains" % prefix))
     if "text_contains_all" in match:
         errors.extend(_validate_string_or_string_list(match.get("text_contains_all"), "%s.text_contains_all" % prefix))
+    if "call_arg_count" in match:
+        errors.extend(_validate_call_arg_count_match(match.get("call_arg_count"), "%s.call_arg_count" % prefix))
+    if "call_arg_literal" in match:
+        errors.extend(_validate_call_arg_literal_match(match.get("call_arg_literal"), "%s.call_arg_literal" % prefix))
     return errors
 
 
@@ -221,6 +227,29 @@ def _validate_string_or_string_list(value: object, prefix: str) -> list[str]:
     if isinstance(value, list) and value and all(isinstance(item, str) and item for item in value):
         return []
     return ["%s must be a non-empty string or non-empty string list" % prefix]
+
+
+def _validate_call_arg_count_match(value: object, prefix: str) -> list[str]:
+    if not isinstance(value, dict):
+        return ["%s must be an object" % prefix]
+    errors: list[str] = []
+    errors.extend(_validate_non_empty_string(value.get("function_name"), "%s.function_name" % prefix))
+    count = value.get("count")
+    if not isinstance(count, int) or isinstance(count, bool) or count < 0:
+        errors.append("%s.count must be a non-negative integer" % prefix)
+    return errors
+
+
+def _validate_call_arg_literal_match(value: object, prefix: str) -> list[str]:
+    if not isinstance(value, dict):
+        return ["%s must be an object" % prefix]
+    errors: list[str] = []
+    errors.extend(_validate_non_empty_string(value.get("function_name"), "%s.function_name" % prefix))
+    argument_index = value.get("argument_index")
+    if not isinstance(argument_index, int) or isinstance(argument_index, bool) or argument_index < 0:
+        errors.append("%s.argument_index must be a non-negative integer" % prefix)
+    errors.extend(_validate_non_empty_string(value.get("value"), "%s.value" % prefix))
+    return errors
 
 
 def _is_real_number(value: object) -> bool:
@@ -307,6 +336,12 @@ def _supported_emission_kinds(schema_version: int) -> set[str]:
     if schema_version <= 1:
         return SUPPORTED_V1_EMISSION_KINDS
     return SUPPORTED_V2_EMISSION_KINDS
+
+
+def _supported_match_operators(schema_version: int) -> set[str]:
+    if schema_version <= 1:
+        return SUPPORTED_V1_MATCH_OPERATORS
+    return SUPPORTED_V2_MATCH_OPERATORS
 
 
 def _contains_forbidden_key(value: Any) -> bool:

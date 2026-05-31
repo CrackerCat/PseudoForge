@@ -1599,6 +1599,25 @@ def _call_arg_rewrite_rule() -> dict:
     }
 
 
+def _call_arg_gate_match(
+    function_name: str = "ProbeForRead",
+    count: int = 3,
+    argument_index: int = 2,
+    value: str = "1",
+) -> dict:
+    return {
+        "call_arg_count": {
+            "function_name": function_name,
+            "count": count,
+        },
+        "call_arg_literal": {
+            "function_name": function_name,
+            "argument_index": argument_index,
+            "value": value,
+        },
+    }
+
+
 class CoreEngineTests(unittest.TestCase):
     def test_plugin_version_matches_manifest(self):
         manifest_path = Path(__file__).resolve().parents[1] / "ida-plugin.json"
@@ -1733,6 +1752,49 @@ class CoreEngineTests(unittest.TestCase):
             binding_function_path.write_text(json.dumps(_rule_pack([binding_function], schema_version=2)), encoding="utf-8")
             self.assertTrue(any("must gate call_arg_rewrite" in error for error in validate_rule_pack_file(binding_function_path)))
 
+    def test_rule_pack_validator_accepts_v2_call_arg_match_gates(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            valid_rule = _call_arg_rewrite_rule()
+            valid_rule["match"] = _call_arg_gate_match()
+            valid_path = temp_path / "valid_call_arg_gates.json"
+            valid_path.write_text(json.dumps(_rule_pack([valid_rule], schema_version=2)), encoding="utf-8")
+            self.assertEqual(validate_rule_pack_file(valid_path), [])
+
+            v1_rule = _rename_rule()
+            v1_rule["match"] = {
+                "call_arg_count": {
+                    "function_name": "ProbeForRead",
+                    "count": 3,
+                }
+            }
+            v1_path = temp_path / "v1_call_arg_gate.json"
+            v1_path.write_text(json.dumps(_rule_pack([v1_rule])), encoding="utf-8")
+            self.assertTrue(any("call_arg_count is not supported" in error for error in validate_rule_pack_file(v1_path)))
+
+            invalid_count = _call_arg_rewrite_rule()
+            invalid_count["match"] = {
+                "call_arg_count": {
+                    "function_name": "ProbeForRead",
+                    "count": True,
+                }
+            }
+            invalid_count_path = temp_path / "invalid_count.json"
+            invalid_count_path.write_text(json.dumps(_rule_pack([invalid_count], schema_version=2)), encoding="utf-8")
+            self.assertTrue(any("count must be a non-negative integer" in error for error in validate_rule_pack_file(invalid_count_path)))
+
+            invalid_literal = _call_arg_rewrite_rule()
+            invalid_literal["match"] = {
+                "call_arg_literal": {
+                    "function_name": "ProbeForRead",
+                    "argument_index": -1,
+                    "value": "1",
+                }
+            }
+            invalid_literal_path = temp_path / "invalid_literal.json"
+            invalid_literal_path.write_text(json.dumps(_rule_pack([invalid_literal], schema_version=2)), encoding="utf-8")
+            self.assertTrue(any("argument_index must be a non-negative integer" in error for error in validate_rule_pack_file(invalid_literal_path)))
+
     def test_rule_engine_emits_v2_call_arg_rewrite_without_plan_conversion(self):
         capture = capture_from_pseudocode(
             """
@@ -1777,6 +1839,62 @@ __int64 __fastcall RuleCallArgSample(void *inputBuffer)
         self.assertTrue(emission.payload["preview_only"])
         self.assertEqual([], emissions_to_renames(result.emissions))
         self.assertEqual([], emissions_to_comments(result.emissions))
+
+    def test_rule_engine_call_arg_gates_match_same_call_site(self):
+        capture = capture_from_pseudocode(
+            """
+__int64 __fastcall RuleCallArgGateSample(void *inputBuffer)
+{
+  ProbeForRead(inputBuffer, 8, 1);
+  ProbeForRead(inputBuffer, 8, 0);
+  ProbeForRead(inputBuffer, 8);
+  return 0;
+}
+"""
+        )
+        pack = RulePack(
+            schema_version=2,
+            id="test.rules",
+            description="test",
+            rules=[
+                Rule(
+                    id="test.comment.call_arg_gates",
+                    phase="semantic_comment",
+                    priority=100,
+                    confidence=0.91,
+                    scope={"calls_any": ["ProbeForRead"]},
+                    match=_call_arg_gate_match(),
+                    emit={
+                        "kind": "semantic_comment",
+                        "comment_kind": "validated_probe",
+                        "text": "ProbeForRead has expected arity and literal mode",
+                        "evidence": "call argument gates",
+                    },
+                ),
+                Rule(
+                    id="test.comment.cross_site_blocked",
+                    phase="semantic_comment",
+                    priority=100,
+                    confidence=0.91,
+                    scope={"calls_any": ["ProbeForRead"]},
+                    match=_call_arg_gate_match(count=2),
+                    emit={
+                        "kind": "semantic_comment",
+                        "comment_kind": "invalid_probe",
+                        "text": "This would require gates from different call sites",
+                        "evidence": "cross-site gate should not match",
+                    },
+                ),
+            ],
+        )
+
+        result = RuleEngine([pack]).run(build_rule_context(capture), phases={"semantic_comment"})
+
+        self.assertEqual(["test.comment.call_arg_gates"], [item["rule_id"] for item in result.report.matched_rules])
+        self.assertEqual(1, len(result.emissions))
+        comments = emissions_to_comments(result.emissions)
+        self.assertEqual("validated_probe", comments[0]["kind"])
+        self.assertIn("expected arity", comments[0]["text"])
 
     def test_rule_context_call_site_facts_include_arguments_and_spans(self):
         capture = capture_from_pseudocode(
