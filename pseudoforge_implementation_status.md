@@ -176,7 +176,7 @@ Implemented in this folder:
    - `tests/test_pseudoforge_free_cli.py`
    - `tests/test_release_pseudoforge.py`
    - renderer golden snapshots under `tests/snapshots`
-   - current suite covers 205 unit tests
+   - current suite covers 206 unit tests
 
 ## Latest Implementation Notes
 
@@ -253,6 +253,11 @@ P2 RuleContext call-site facts update:
   and captured arguments without reparsing pseudocode declarations.
 - V2 rule matching now supports `call_arg_count` and `call_arg_literal` gates
   over the same call site, keeping v1 match operators unchanged.
+- `RuleContext.profile_functions` now records profile-backed metadata for known
+  calls, including headers, return types, parameter names/types/kinds, enum
+  tags, and alias information.
+- Rule contexts built during `build_clean_plan()` use the kernel API profile
+  lookup and skip unknown or failed profile lookups without aborting rules.
 
 P0 rename identity hardening update:
 

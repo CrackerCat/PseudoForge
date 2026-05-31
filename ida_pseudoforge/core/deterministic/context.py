@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from typing import Any, Callable
 
 from ida_pseudoforge.core.normalize import (
     extract_identifiers,
@@ -19,6 +20,20 @@ class LvarFact:
     index: int = -1
     location: str = ""
     identity: str = ""
+
+
+@dataclass(slots=True)
+class ProfileFunctionFact:
+    name: str
+    header: str = ""
+    return_type: str = ""
+    param_count: int = 0
+    parameter_names: list[str] = field(default_factory=list)
+    parameter_types: list[str] = field(default_factory=list)
+    parameter_kinds: list[str] = field(default_factory=list)
+    parameter_enums: list[str] = field(default_factory=list)
+    alias_of: str = ""
+    alias_kind: str = ""
 
 
 @dataclass(slots=True)
@@ -63,6 +78,7 @@ class RuleContext:
     lvar_types: dict[str, str] = field(default_factory=dict)
     arg_names: set[str] = field(default_factory=set)
     lvar_facts: list[LvarFact] = field(default_factory=list)
+    profile_functions: dict[str, ProfileFunctionFact] = field(default_factory=dict)
     assignments: list[AssignmentFact] = field(default_factory=list)
     call_sites: list[CallSiteFact] = field(default_factory=list)
     labels: list[LabelFact] = field(default_factory=list)
@@ -77,7 +93,11 @@ _LABEL_RE = re.compile(r"(?m)^(?P<name>[A-Za-z_][A-Za-z0-9_]*):")
 _LITERAL_RE = re.compile(r"\b(?:0x[0-9A-Fa-f]+|\d+)\b")
 
 
-def build_rule_context(capture: FunctionCapture, text: str | None = None) -> RuleContext:
+def build_rule_context(
+    capture: FunctionCapture,
+    text: str | None = None,
+    profile_function_lookup: Callable[[str], dict[str, Any]] | None = None,
+) -> RuleContext:
     rule_text = capture.pseudocode if text is None else text
     lvar_facts = _lvar_facts(capture)
     return RuleContext(
@@ -89,6 +109,7 @@ def build_rule_context(capture: FunctionCapture, text: str | None = None) -> Rul
         arg_names={fact.name for fact in lvar_facts if fact.name and fact.is_arg},
         calls={str(name) for name in capture.calls},
         lvar_facts=lvar_facts,
+        profile_functions=_profile_function_facts(capture, profile_function_lookup),
         assignments=_assignment_facts(rule_text or ""),
         call_sites=_call_site_facts(rule_text or ""),
         labels=_label_facts(rule_text or ""),
@@ -117,6 +138,43 @@ def _lvar_types(facts: list[LvarFact]) -> dict[str, str]:
         if fact.name and fact.type and fact.name not in result:
             result[fact.name] = fact.type
     return result
+
+
+def _profile_function_facts(
+    capture: FunctionCapture,
+    lookup: Callable[[str], dict[str, Any]] | None,
+) -> dict[str, ProfileFunctionFact]:
+    if lookup is None:
+        return {}
+    result: dict[str, ProfileFunctionFact] = {}
+    for name in capture.calls:
+        function_name = str(name or "").strip()
+        if not function_name or function_name in result:
+            continue
+        try:
+            metadata = lookup(function_name)
+        except Exception:
+            continue
+        if not isinstance(metadata, dict) or not metadata:
+            continue
+        result[function_name] = _profile_function_fact(function_name, metadata)
+    return result
+
+
+def _profile_function_fact(name: str, metadata: dict[str, Any]) -> ProfileFunctionFact:
+    params = [item for item in metadata.get("params", []) if isinstance(item, dict)]
+    return ProfileFunctionFact(
+        name=name,
+        header=str(metadata.get("header", "") or metadata.get("source_header", "") or ""),
+        return_type=str(metadata.get("return_type", "") or ""),
+        param_count=len(params),
+        parameter_names=[str(item.get("name", "") or "") for item in params],
+        parameter_types=[str(item.get("type", "") or "") for item in params],
+        parameter_kinds=[str(item.get("kind", "") or "") for item in params],
+        parameter_enums=[str(item.get("enum", "") or "") for item in params],
+        alias_of=str(metadata.get("profile_alias_of", "") or ""),
+        alias_kind=str(metadata.get("profile_alias_kind", "") or ""),
+    )
 
 
 def _assignment_facts(text: str) -> list[AssignmentFact]:

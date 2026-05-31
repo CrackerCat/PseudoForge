@@ -12,6 +12,7 @@ from ida_pseudoforge.core.deterministic.engine import RuleEngine
 from ida_pseudoforge.core.deterministic.loader import load_default_rule_packs
 from ida_pseudoforge.core.deterministic.schema import RuleReport
 from ida_pseudoforge.core.flow_recovery import recover_flow
+from ida_pseudoforge.core.kernel_api import kernel_function_metadata
 from ida_pseudoforge.core.kernel_semantics import (
     callback_registration_parameter_names,
     driver_dispatch_parameter_names,
@@ -107,7 +108,11 @@ def _rule_rename_suggestions(
     engine: RuleEngine,
     report: RuleReport,
 ) -> list[RenameSuggestion]:
-    result = engine.run(build_rule_context(capture), phases={"rename"}, report=report)
+    result = engine.run(
+        build_rule_context(capture, profile_function_lookup=kernel_function_metadata),
+        phases={"rename"},
+        report=report,
+    )
     return emissions_to_renames(result.emissions)
 
 
@@ -118,7 +123,11 @@ def _rule_semantic_comments(
     report: RuleReport,
 ) -> list[dict[str, Any]]:
     text = safe_identifier_replace(capture.pseudocode, rename_map)
-    result = engine.run(build_rule_context(capture, text=text), phases={"semantic_comment"}, report=report)
+    result = engine.run(
+        build_rule_context(capture, text=text, profile_function_lookup=kernel_function_metadata),
+        phases={"semantic_comment"},
+        report=report,
+    )
     return emissions_to_comments(result.emissions)
 
 

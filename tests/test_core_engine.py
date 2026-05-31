@@ -2006,6 +2006,49 @@ __int64 __fastcall RuleContextLvarSample(void *inputBuffer)
         self.assertFalse(lvars["status"].is_arg)
         self.assertEqual("scratch-id", lvars["scratch"].identity)
 
+    def test_rule_context_profile_function_facts_include_metadata(self):
+        capture = capture_from_pseudocode(
+            """
+__int64 __fastcall RuleContextProfileSample(void *inputBuffer)
+{
+  ProbeForRead(inputBuffer, 8, 1);
+  UnknownHelper(inputBuffer);
+  return 0;
+}
+"""
+        )
+
+        def lookup(name: str):
+            if name == "ProbeForRead":
+                return {
+                    "header": "wdm.h",
+                    "return_type": "VOID",
+                    "params": [
+                        {"name": "Address", "type": "PVOID", "kind": "value"},
+                        {"name": "Length", "type": "SIZE_T", "kind": "size"},
+                        {"name": "Alignment", "type": "ULONG", "kind": "flags", "enum": "PROBE_FLAGS"},
+                    ],
+                    "profile_alias_of": "ProbeForRead",
+                    "profile_alias_kind": "explicit",
+                }
+            if name == "UnknownHelper":
+                raise RuntimeError("profile lookup failed")
+            return {}
+
+        context = build_rule_context(capture, profile_function_lookup=lookup)
+
+        self.assertEqual(["ProbeForRead"], list(context.profile_functions))
+        probe = context.profile_functions["ProbeForRead"]
+        self.assertEqual("wdm.h", probe.header)
+        self.assertEqual("VOID", probe.return_type)
+        self.assertEqual(3, probe.param_count)
+        self.assertEqual(["Address", "Length", "Alignment"], probe.parameter_names)
+        self.assertEqual(["PVOID", "SIZE_T", "ULONG"], probe.parameter_types)
+        self.assertEqual(["value", "size", "flags"], probe.parameter_kinds)
+        self.assertEqual(["", "", "PROBE_FLAGS"], probe.parameter_enums)
+        self.assertEqual("ProbeForRead", probe.alias_of)
+        self.assertEqual("explicit", probe.alias_kind)
+
     def test_rule_engine_assignment_regex_binding_and_scope_gate(self):
         capture = capture_from_pseudocode(
             """

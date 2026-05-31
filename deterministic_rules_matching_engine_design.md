@@ -202,6 +202,7 @@ class RuleContext:
     lvar_types: dict[str, str]
     arg_names: set[str]
     lvar_facts: list[LvarFact]
+    profile_functions: dict[str, ProfileFunctionFact]
     assignments: list[AssignmentFact]
     call_sites: list[CallSiteFact]
     labels: list[LabelFact]
@@ -221,6 +222,11 @@ facts but do not report a pure RHS call.
 status, index, storage/location text, and stable identity when the capture
 source provides it. `lvar_types` and `arg_names` are convenience indexes over
 those facts.
+
+`ProfileFunctionFact` records profile-backed metadata for known call names,
+including header, return type, parameter names/types/kinds, parameter enum tags,
+and alias metadata. Missing or failed profile lookups leave the function absent
+from the profile fact map instead of failing rule matching.
 
 The first implementation can use regex-based fact extraction. Ctree-identity based facts can be added later.
 

@@ -449,7 +449,7 @@ python -B -m unittest discover -s tests -v
 
 ## P2: Richer RuleContext And Dataflow Facts
 
-Status: In progress.
+Status: Completed.
 
 Completed:
 
@@ -465,26 +465,26 @@ Completed:
   `FunctionCapture.lvars`.
 - [x] Added v2 rule match gates for call argument count and literal argument
   values without regex.
-
-Remaining:
-
-- [ ] Add profile facts for known functions and enums.
+- [x] Added profile-backed function facts for known calls, including parameter
+  names, types, kinds, enum tags, headers, return types, and alias metadata.
 
 ### Current Evidence
 
 - `RuleContext` now indexes regex facts plus call-site, assignment dataflow, and
-  local-variable metadata facts.
+  local-variable/profile metadata facts.
 - V2 rules can gate matches on exact call-site argument count and exact literal
   argument values.
+- Rule contexts built by `build_clean_plan()` include kernel profile metadata
+  for known function calls while ignoring missing or failed profile lookups.
 - Existing render and kernel rewrite code already contains argument splitting,
   call-argument parsing, literal parsing, and helper-specific heuristics.
 
 ### Problem
 
 V2 rules need stronger facts than text spans. Without typed call-site,
-assignment, and local-variable facts, JSON rules either become too weak to be
-useful or too broad to be safe. Reusing parser helpers also reduces duplicate
-parsing bugs.
+assignment, local-variable, and profile facts, JSON rules either become too weak
+to be useful or too broad to be safe. Reusing parser helpers also reduces
+duplicate parsing bugs.
 
 ### Plan
 
