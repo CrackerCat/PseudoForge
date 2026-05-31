@@ -126,6 +126,24 @@ git diff --check -- .
 
 ## P1: Renderer Decomposition And Snapshot Protection
 
+Status: In progress.
+
+Completed:
+
+- [x] Added renderer snapshot test harness with normalized version and
+  fingerprint metadata.
+- [x] Added initial golden snapshots for native API dispatcher,
+  DriverEntry/device-extension cleanup, IOCTL dispatch, OB pre-operation
+  callback, and generic non-kernel style output.
+- [x] Added an explicit snapshot update workflow under `tests/snapshots`.
+
+Remaining:
+
+- [ ] Introduce `RenderContext`.
+- [ ] Move renderer passes into scoped modules one rewrite family at a time.
+- [ ] Preserve public render imports during extraction.
+- [ ] Keep extraction commits behavior-preserving unless documented otherwise.
+
 ### Current Evidence
 
 - `ida_pseudoforge/core/render.py` is the largest production module at roughly

@@ -168,11 +168,24 @@ Implemented in this folder:
 6. Tests
    - `tests/test_core_engine.py`
    - `tests/test_ida_plugin_safety.py`
+   - `tests/test_render_snapshots.py`
    - `tests/test_pseudoforge_free_cli.py`
    - `tests/test_release_pseudoforge.py`
-   - current suite covers 189 unit tests
+   - renderer golden snapshots under `tests/snapshots`
+   - current suite covers 194 unit tests
 
 ## Latest Implementation Notes
+
+P1 renderer snapshot protection update:
+
+- Added a renderer snapshot harness for `render_cleaned_pseudocode()` output.
+- Initial normalized golden snapshots cover native API dispatcher,
+  DriverEntry/device-extension cleanup, IOCTL dispatch, OB pre-operation
+  callback, and generic non-kernel style output.
+- Snapshot comparison normalizes version and input fingerprint metadata while
+  preserving the rendered header/body structure for regression review.
+- Snapshot updates require explicit `PSEUDOFORGE_UPDATE_SNAPSHOTS=1` and are
+  documented in `tests/snapshots/README.md`.
 
 P0 rename identity hardening update:
 
