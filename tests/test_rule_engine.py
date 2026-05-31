@@ -7,10 +7,148 @@ from ida_pseudoforge.core.deterministic.context import build_rule_context
 from ida_pseudoforge.core.deterministic.emitters import emissions_to_comments, emissions_to_renames
 from ida_pseudoforge.core.deterministic.engine import RuleEngine
 from ida_pseudoforge.core.deterministic.schema import Rule, RulePack
-from tests.helpers import _call_arg_gate_match
+from ida_pseudoforge.core.flow_recovery import recover_flow
+from tests.helpers import _call_arg_gate_match, _flow_rule
+
+
+FLOW_RULE_SAMPLE = """
+__int64 __fastcall RuleFlowSample(int code)
+{
+  switch ( code )
+  {
+    case 1:
+      return 1;
+    case 2:
+      return 2;
+    case 3:
+      return 3;
+    case 4:
+      return 4;
+    default:
+      return 0;
+  }
+}
+"""
 
 
 class RuleEngineTests(unittest.TestCase):
+    def test_rule_engine_emits_v2_flow_without_plan_conversion(self) -> None:
+        capture = capture_from_pseudocode(FLOW_RULE_SAMPLE)
+        flows = recover_flow(capture)
+        pack = RulePack(
+            schema_version=2,
+            id="test.rules",
+            description="test",
+            rules=[
+                Rule(
+                    id="test.flow.v2",
+                    phase="flow",
+                    priority=50,
+                    confidence=0.90,
+                    scope={"text_contains": "switch"},
+                    match={
+                        "flow_case_count_min": 4,
+                        "flow_dispatcher_regex": "^code$",
+                        "flow_body_state_any": "single_statement_body",
+                    },
+                    emit={
+                        "kind": "flow",
+                        "flow_kind": "switch_recovery_review",
+                        "summary": "Recovered $case_count cases for $dispatcher",
+                        "preview_only": True,
+                        "evidence": "preview-only flow report",
+                    },
+                )
+            ],
+        )
+
+        result = RuleEngine([pack]).run(
+            build_rule_context(capture, flow_rewrites=flows),
+            phases={"flow"},
+        )
+
+        self.assertEqual(1, len(result.emissions))
+        emission = result.emissions[0]
+        self.assertEqual("flow", emission.kind)
+        self.assertEqual("switch_recovery_review", emission.payload["flow_kind"])
+        self.assertEqual("code", emission.payload["dispatcher"])
+        self.assertEqual(4, emission.payload["case_count"])
+        self.assertEqual([1, 2, 3, 4], emission.payload["recovered_cases"])
+        self.assertTrue(emission.payload["preview_only"])
+        self.assertEqual("Recovered 4 cases for code", emission.payload["summary"])
+        self.assertEqual(1, len(result.report.rewrite_emissions))
+        self.assertEqual("applied", result.report.rewrite_emissions[0]["status"])
+        self.assertEqual("flow", result.report.rewrite_emissions[0]["kind"])
+        self.assertTrue(result.report.rewrite_emissions[0]["preview_only"])
+        self.assertEqual([], emissions_to_renames(result.emissions))
+        self.assertEqual([], emissions_to_comments(result.emissions))
+
+    def test_rule_engine_reports_shadowed_v2_flow_rewrites(self) -> None:
+        capture = capture_from_pseudocode(FLOW_RULE_SAMPLE)
+        flows = recover_flow(capture)
+        pack = RulePack(
+            schema_version=2,
+            id="test.rules",
+            description="test",
+            rules=[
+                Rule(**_flow_rule(rule_id="test.flow.low", priority=10)),
+                Rule(**_flow_rule(rule_id="test.flow.high", priority=90)),
+            ],
+        )
+
+        result = RuleEngine([pack]).run(
+            build_rule_context(capture, flow_rewrites=flows),
+            phases={"flow"},
+        )
+
+        self.assertEqual(1, len(result.emissions))
+        self.assertEqual("test.flow.high", result.emissions[0].rule_id)
+        statuses = {item["rule_id"]: item["status"] for item in result.report.rewrite_emissions}
+        self.assertEqual("applied", statuses["test.flow.high"])
+        self.assertEqual("shadowed", statuses["test.flow.low"])
+        shadowed = next(item for item in result.report.rewrite_emissions if item["rule_id"] == "test.flow.low")
+        self.assertEqual("test.flow.high", shadowed["winner_rule_id"])
+        self.assertIn("flow conflict", shadowed["reason"])
+
+    def test_rule_engine_flow_requires_recovered_flow_fact(self) -> None:
+        capture = capture_from_pseudocode(
+            """
+__int64 __fastcall RuleFlowNoFactSample(int code)
+{
+  return code;
+}
+"""
+        )
+        pack = RulePack(
+            schema_version=2,
+            id="test.rules",
+            description="test",
+            rules=[Rule(**_flow_rule())],
+        )
+
+        result = RuleEngine([pack]).run(build_rule_context(capture), phases={"flow"})
+
+        self.assertEqual([], result.emissions)
+        self.assertEqual([], result.report.rewrite_emissions)
+
+    def test_rule_engine_flow_runtime_rejects_weak_case_count_gate(self) -> None:
+        capture = capture_from_pseudocode(FLOW_RULE_SAMPLE)
+        flows = recover_flow(capture)
+        pack = RulePack(
+            schema_version=2,
+            id="test.rules",
+            description="test",
+            rules=[Rule(**_flow_rule(min_cases=2))],
+        )
+
+        result = RuleEngine([pack]).run(
+            build_rule_context(capture, flow_rewrites=flows),
+            phases={"flow"},
+        )
+
+        self.assertEqual([], result.emissions)
+        self.assertEqual([], result.report.rewrite_emissions)
+
     def test_rule_engine_emits_v2_call_arg_rewrite_without_plan_conversion(self) -> None:
         capture = capture_from_pseudocode(
             """

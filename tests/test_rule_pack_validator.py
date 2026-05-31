@@ -9,6 +9,7 @@ from ida_pseudoforge.core.deterministic.validators import validate_rule_pack_fil
 from tests.helpers import (
     _call_arg_gate_match,
     _call_arg_rewrite_rule,
+    _flow_rule,
     _rename_rule,
     _rule_pack,
     _text_rewrite_rule,
@@ -177,6 +178,55 @@ class RulePackValidatorTests(unittest.TestCase):
             missing_before_path = temp_path / "text_missing_before.json"
             missing_before_path.write_text(json.dumps(_rule_pack([missing_before], schema_version=2)), encoding="utf-8")
             self.assertTrue(any("before_regex is required" in error for error in validate_rule_pack_file(missing_before_path)))
+
+    def test_rule_pack_validator_accepts_v2_flow_preview_only(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            valid_path = temp_path / "valid_v2_flow.json"
+            valid_path.write_text(json.dumps(_rule_pack([_flow_rule()], schema_version=2)), encoding="utf-8")
+
+            self.assertEqual(validate_rule_pack_file(valid_path), [])
+
+            v1_path = temp_path / "v1_flow_rejected.json"
+            v1_path.write_text(json.dumps(_rule_pack([_flow_rule()])), encoding="utf-8")
+            self.assertTrue(any("phase" in error for error in validate_rule_pack_file(v1_path)))
+
+            not_preview = _flow_rule()
+            not_preview["emit"]["preview_only"] = False
+            not_preview_path = temp_path / "flow_not_preview.json"
+            not_preview_path.write_text(json.dumps(_rule_pack([not_preview], schema_version=2)), encoding="utf-8")
+            self.assertTrue(any("preview_only must be true" in error for error in validate_rule_pack_file(not_preview_path)))
+
+            missing_flow_kind = _flow_rule()
+            del missing_flow_kind["emit"]["flow_kind"]
+            missing_flow_kind_path = temp_path / "flow_missing_kind.json"
+            missing_flow_kind_path.write_text(
+                json.dumps(_rule_pack([missing_flow_kind], schema_version=2)),
+                encoding="utf-8",
+            )
+            self.assertTrue(any("flow_kind is required" in error for error in validate_rule_pack_file(missing_flow_kind_path)))
+
+            missing_case_count = _flow_rule()
+            del missing_case_count["match"]["flow_case_count_min"]
+            missing_case_count_path = temp_path / "flow_missing_count.json"
+            missing_case_count_path.write_text(
+                json.dumps(_rule_pack([missing_case_count], schema_version=2)),
+                encoding="utf-8",
+            )
+            self.assertTrue(
+                any("flow_case_count_min is required" in error for error in validate_rule_pack_file(missing_case_count_path))
+            )
+
+            weak_case_count = _flow_rule(min_cases=2)
+            weak_case_count_path = temp_path / "flow_weak_count.json"
+            weak_case_count_path.write_text(json.dumps(_rule_pack([weak_case_count], schema_version=2)), encoding="utf-8")
+            self.assertTrue(any("flow_case_count_min must be an integer >= 3" in error for error in validate_rule_pack_file(weak_case_count_path)))
+
+            regex_flow = _flow_rule()
+            regex_flow["match"]["regex"] = "switch"
+            regex_flow_path = temp_path / "flow_regex.json"
+            regex_flow_path.write_text(json.dumps(_rule_pack([regex_flow], schema_version=2)), encoding="utf-8")
+            self.assertTrue(any("regex is not supported for flow" in error for error in validate_rule_pack_file(regex_flow_path)))
 
     def test_rule_pack_validator_accepts_v2_call_arg_match_gates(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

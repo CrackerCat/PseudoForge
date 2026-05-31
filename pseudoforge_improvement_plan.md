@@ -485,7 +485,7 @@ python -B .\tools\pseudoforge_cli.py .\samples\pseudocode\NtSetSystemInformation
 
 ## P1: Deterministic Rules V2 Rewrite Phases
 
-Status: In progress.
+Status: Completed.
 
 Completed:
 
@@ -512,25 +512,30 @@ Completed:
   reports.
 - [x] Runs `text_rewrite` after semantic comments for reporting only, without
   changing rendered pseudocode or IDB state.
+- [x] Added preview-only `flow` emissions over already recovered dispatcher
+  facts, with `flow_case_count_min >= 3` validation and same-dispatcher conflict
+  reporting.
+- [x] Runs `flow` after conservative flow recovery for reporting only, without
+  changing `CleanPlan.flow_rewrites`, rendered pseudocode, switch outlines, or
+  IDB state.
 
 Remaining:
 
-- [ ] Add `flow` only after stronger branch evidence exists.
+- None for the deterministic rules v2 rewrite phase slice.
 
 ### Current Evidence
 
 - `deterministic_rules_matching_engine_design.md` documents v2
-  `call_arg_rewrite` and `text_rewrite` as preview/export-only while still
-  reserving `flow`.
+  `call_arg_rewrite`, `flow`, and `text_rewrite` as preview/export-only.
 - `ida_pseudoforge/core/deterministic/validators.py` accepts v1 rename/comment
-  phases and v2 preview-only `call_arg_rewrite`/`text_rewrite`, with emit kind
-  matching phase.
+  phases and v2 preview-only `call_arg_rewrite`/`flow`/`text_rewrite`, with
+  emit kind matching phase.
 - `ida_pseudoforge/core/deterministic/schema.py` exposes
   `RuleReport.rewrite_emissions` for preview-only rewrite status reporting.
 - `ida_pseudoforge/rules/builtin/call_arg_rewrites.json` mirrors one BOOLEAN
   call-argument cleanup family without replacing hard-coded rendering.
 - `ida_pseudoforge/core/deterministic/context.py:55` builds regex-oriented
-  facts: assignments, calls, labels, and literals.
+  facts: assignments, calls, labels, literals, and already recovered flow facts.
 - Existing hard-coded rewrites remain in `kernel_rewrites.py`, `kernel_api.py`,
   and `render.py`.
 
@@ -571,6 +576,7 @@ shadow hard-coded behavior before they are allowed to replace it.
 
 ```powershell
 python -B .\tools\validate_pseudoforge_rules.py .\ida_pseudoforge\rules\builtin
+python -B -m unittest tests.test_rule_engine tests.test_rule_pack_validator tests.test_rule_integration -v
 python -B -m unittest discover -s tests -v
 ```
 

@@ -402,6 +402,17 @@ P1 deterministic rules v2 preview boundary update:
 - `build_clean_plan()` runs the `text_rewrite` phase after semantic comments
   for reporting only; accepted candidates do not change rendered pseudocode or
   any IDB-write path.
+- Rule packs can now use `schema_version: 2` for preview-only `flow` emissions
+  over already recovered `FlowRewrite` facts.
+- `flow` rules require `preview_only: true`, a non-empty `flow_kind`, and
+  `flow_case_count_min >= 3`; optional dispatcher regex and body-state gates
+  can further narrow the recovered branch evidence.
+- Runtime support records `RuleEmission(kind="flow")` candidates in
+  `rewrite_emissions` and resolves same-dispatcher/same-flow-kind conflicts as
+  `applied`/`shadowed` report entries only.
+- `build_clean_plan()` runs the `flow` phase after conservative flow recovery;
+  accepted candidates do not change `CleanPlan.flow_rewrites`, rendered
+  pseudocode, switch outlines, or any IDB-write path.
 - Builtin v2 report-only rules now mirror the low-risk
   `PsSetCreateProcessNotifyRoutine`/`PspSetCreateProcessNotifyRoutine`
   BOOLEAN remove-argument cleanup family for parity comparison with the
@@ -1236,10 +1247,11 @@ Keep LLM path enabled with -LlmProvider codex_cli -LlmModel gpt-5.5.
 
 ## Next Steps
 
-1. Extend deterministic rules matching engine beyond v2 preview reports with a safe `flow` phase when branch evidence is strong enough.
-2. Improve switch body reconstruction for shared/fallthrough branch paths.
-3. Enhance the feature-flagged side-by-side preview with synchronized search
+1. Improve switch body reconstruction for shared/fallthrough branch paths.
+2. Enhance the feature-flagged side-by-side preview with synchronized search
    and warning/rule summary panes.
-4. Investigate true object-level ctree rename application beyond the validated
+3. Investigate true object-level ctree rename application beyond the validated
    identity preflight gates.
+4. Compare report-only deterministic rule candidates against more hard-coded
+   renderer paths before any replacement work.
 5. Expand semantic overlays for more WDK APIs beyond the currently known pool/list/resource cases.

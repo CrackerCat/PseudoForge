@@ -129,6 +129,38 @@ def _text_rewrite_rule(
     }
 
 
+def _flow_rule(
+    rule_id: str = "test.flow.v2",
+    priority: int = 50,
+    min_cases: int = 4,
+    dispatcher_regex: str = "^code$",
+    body_state_any: str | list[str] | None = None,
+) -> dict:
+    match = {
+        "flow_case_count_min": min_cases,
+        "flow_dispatcher_regex": dispatcher_regex,
+    }
+    if body_state_any is not None:
+        match["flow_body_state_any"] = body_state_any
+    return {
+        "id": rule_id,
+        "phase": "flow",
+        "priority": priority,
+        "confidence": 0.90,
+        "scope": {
+            "text_contains": "switch"
+        },
+        "match": match,
+        "emit": {
+            "kind": "flow",
+            "flow_kind": "switch_recovery_review",
+            "summary": "Recovered $case_count cases for $dispatcher",
+            "preview_only": True,
+            "evidence": "preview-only flow report"
+        },
+    }
+
+
 def _call_arg_gate_match(
     function_name: str = "ProbeForRead",
     count: int = 3,

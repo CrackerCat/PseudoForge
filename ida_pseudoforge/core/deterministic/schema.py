@@ -14,6 +14,7 @@ SUPPORTED_V1_PHASES = {
 
 SUPPORTED_V2_PHASES = SUPPORTED_V1_PHASES | {
     "call_arg_rewrite",
+    "flow",
     "text_rewrite",
 }
 
@@ -26,6 +27,7 @@ SUPPORTED_V1_EMISSION_KINDS = {
 
 SUPPORTED_V2_EMISSION_KINDS = SUPPORTED_V1_EMISSION_KINDS | {
     "call_arg_rewrite",
+    "flow",
     "text_rewrite",
 }
 
@@ -58,6 +60,9 @@ SUPPORTED_V2_MATCH_OPERATORS = SUPPORTED_V1_MATCH_OPERATORS | {
     "before_regex",
     "call_arg_count",
     "call_arg_literal",
+    "flow_body_state_any",
+    "flow_case_count_min",
+    "flow_dispatcher_regex",
 }
 
 SUPPORTED_MATCH_OPERATORS = SUPPORTED_V2_MATCH_OPERATORS
@@ -119,6 +124,7 @@ class RuleMatch:
     span: tuple[int, int] | None = None
     evidence: str = ""
     emission_kind: str = ""
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

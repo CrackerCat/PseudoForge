@@ -52,6 +52,8 @@ def build_emission(rule: Rule, match: RuleMatch, report: RuleReport) -> RuleEmis
         return _build_comment_emission(rule, match, report)
     if kind == "call_arg_rewrite":
         return _build_call_arg_rewrite_emission(rule, match, report)
+    if kind == "flow":
+        return _build_flow_emission(rule, match, report)
     if kind == "text_rewrite":
         return _build_text_rewrite_emission(rule, match, report)
     _reject(report, rule, "unsupported emission kind %s" % kind)
@@ -185,6 +187,45 @@ def _build_text_rewrite_emission(rule: Rule, match: RuleMatch, report: RuleRepor
     )
 
 
+def _build_flow_emission(rule: Rule, match: RuleMatch, report: RuleReport) -> RuleEmission | None:
+    emit = rule.emit or {}
+    flow_kind = _resolve_binding(str(emit.get("flow_kind", "")), match.bindings)
+    if not flow_kind:
+        _reject(report, rule, "flow emission flow_kind could not be resolved")
+        return None
+    if emit.get("preview_only") is not True:
+        _reject(report, rule, "flow emission must be preview_only")
+        return None
+    flow_payload = match.metadata.get("flow") if isinstance(match.metadata, dict) else None
+    if not isinstance(flow_payload, dict) or not flow_payload.get("dispatcher"):
+        _reject(report, rule, "flow emission has no matched flow fact")
+        return None
+    evidence = _resolve_binding(str(emit.get("evidence", "") or match.evidence or rule.id), match.bindings)
+    summary = _resolve_binding(str(emit.get("summary", "") or ""), match.bindings)
+    payload = dict(flow_payload)
+    payload.update(
+        {
+            "flow_kind": flow_kind,
+            "preview_only": True,
+            "summary": summary,
+            "source": "rule",
+            "evidence": evidence,
+        }
+    )
+    return RuleEmission(
+        kind="flow",
+        rule_id=rule.id,
+        confidence=rule.confidence,
+        priority=rule.priority,
+        source_path=rule.source_path,
+        source_label=rule.source_label,
+        source_order=rule.source_order,
+        override_of=rule.override_of,
+        evidence=evidence,
+        payload=payload,
+    )
+
+
 def _resolve_binding(value: str, bindings: dict[str, str]) -> str:
     result = value
     for key, replacement in bindings.items():
@@ -222,4 +263,8 @@ def _reject(report: RuleReport, rule: Rule, reason: str) -> None:
 
 def _is_rewrite_rule(rule: Rule) -> bool:
     kind = str((rule.emit or {}).get("kind", ""))
-    return rule.phase in {"call_arg_rewrite", "text_rewrite"} or kind in {"call_arg_rewrite", "text_rewrite"}
+    return rule.phase in {"call_arg_rewrite", "flow", "text_rewrite"} or kind in {
+        "call_arg_rewrite",
+        "flow",
+        "text_rewrite",
+    }

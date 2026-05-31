@@ -153,6 +153,7 @@ Implemented:
    - Preview-only `call_arg_rewrite` reports.
    - Preview-only `text_rewrite` reports with semantic comment gates and span
      conflict detection.
+   - Preview-only `flow` reports gated by recovered dispatcher case evidence.
 26. IDA analysis completion summaries include deterministic rule diagnostic
     counts.
 27. Export summaries and IDA Free result summaries include deterministic rule
@@ -171,7 +172,7 @@ Still pending:
 1. Full switch body reconstruction for shared and fallthrough branches.
 2. True object-level ctree rename application beyond the current identity preflight gates.
 3. Richer side-by-side preview navigation, synchronized search, and warning/rule summary panes.
-4. Deterministic rule phase expansion for `flow` and broader parity migration.
+4. Broader deterministic rule parity migration beyond report-only phases.
 5. Wider profile coverage from real target builds.
 
 Detailed implementation tracking lives in [pseudoforge_implementation_status.md](pseudoforge_implementation_status.md).
@@ -1340,14 +1341,16 @@ rename
 semantic_comment
 ```
 
-Schema version 2 also supports preview-only `call_arg_rewrite` and
-`text_rewrite` emissions.
+Schema version 2 also supports preview-only `call_arg_rewrite`, `text_rewrite`,
+and `flow` emissions.
 The builtin v2 report-only rules currently mirror the low-risk
 `PsSetCreateProcessNotifyRoutine`/`PspSetCreateProcessNotifyRoutine` BOOLEAN
 remove-argument cleanup so reports can compare rule candidates against the
 existing hard-coded kernel API renderer path. `text_rewrite` candidates require
 `before_regex`, `replacement`, `preview_only: true`, and a
-`requires_comment_kind` semantic gate.
+`requires_comment_kind` semantic gate. `flow` candidates require already
+recovered dispatcher evidence through `flow_case_count_min` and remain rule
+report entries only.
 
 Rule conflict policy:
 
@@ -1355,9 +1358,10 @@ Rule conflict policy:
 2. Rename emissions for the same target are resolved before normal rename validation.
 3. Preview-only `call_arg_rewrite` emissions for the same function argument are resolved before report export.
 4. Preview-only `text_rewrite` emissions with overlapping spans are resolved before report export.
-5. `override_of` is the strongest conflict signal; otherwise `priority` wins before `confidence`.
-6. Rule-based renames always use source `rule`; JSON cannot spoof trusted internal sources such as `kernel-status` or `semantic-rule`.
-7. Rule report paths are redacted to labels such as `builtin/local_renames.json`, `project/foo.json`, or `user/foo.json`.
+5. Preview-only `flow` emissions for the same dispatcher and flow kind are resolved before report export.
+6. `override_of` is the strongest conflict signal; otherwise `priority` wins before `confidence`.
+7. Rule-based renames always use source `rule`; JSON cannot spoof trusted internal sources such as `kernel-status` or `semantic-rule`.
+8. Rule report paths are redacted to labels such as `builtin/local_renames.json`, `project/foo.json`, or `user/foo.json`.
 
 Run with additional rules and write a report:
 
@@ -1391,8 +1395,8 @@ Safety boundaries:
 5. Invalid regexes, invalid scope regexes, ambiguous primary regex matchers, empty matches, empty text gates, boolean numeric fields, and missing emit fields are rejected at load time.
 6. Runtime exceptions reject only the offending rule and analysis continues.
 7. Rule-based rename suggestions still pass through `validate_renames()`.
-8. `call_arg_rewrite` and `text_rewrite` output is report-only today; it is not converted into rename/comment plan output and cannot modify IDB state.
-9. Control-flow rewrite rules are out of v2 preview scope and do not modify IDB state.
+8. `call_arg_rewrite`, `text_rewrite`, and `flow` output is report-only today; it is not converted into rename/comment plan output and cannot modify IDB state.
+9. `flow` rules can only report already recovered dispatcher facts; they do not synthesize switch bodies or replace hard-coded flow recovery.
 
 ## Validation
 
@@ -1543,8 +1547,8 @@ Rename application fails:
 
 ## Next Work
 
-1. Continue deterministic rules v2 with a safe `flow` phase after stronger branch evidence exists.
-2. Improve shared and fallthrough branch body reconstruction.
-3. Investigate true object-level ctree rename application beyond the validated identity preflight gates.
-4. Enhance the feature-flagged side-by-side preview with synchronized search and warning/rule summary panes.
-5. Expand profile coverage against real target builds.
+1. Improve shared and fallthrough branch body reconstruction.
+2. Investigate true object-level ctree rename application beyond the validated identity preflight gates.
+3. Enhance the feature-flagged side-by-side preview with synchronized search and warning/rule summary panes.
+4. Expand profile coverage against real target builds.
+5. Compare report-only deterministic rule candidates against more hard-coded renderer paths before any replacement work.

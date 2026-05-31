@@ -9,7 +9,7 @@ from ida_pseudoforge.core.normalize import (
     find_matching_paren,
     split_parameters_with_spans,
 )
-from ida_pseudoforge.core.plan_schema import FunctionCapture
+from ida_pseudoforge.core.plan_schema import FlowRewrite, FunctionCapture
 
 
 @dataclass(slots=True)
@@ -69,6 +69,19 @@ class LiteralFact:
 
 
 @dataclass(slots=True)
+class FlowFact:
+    kind: str
+    dispatcher: str
+    recovered_cases: list[int] = field(default_factory=list)
+    case_body_states: dict[int, str] = field(default_factory=dict)
+    case_anchors: dict[int, int] = field(default_factory=dict)
+    case_labels: dict[int, str] = field(default_factory=dict)
+    confidence: float = 0.0
+    export_only: bool = True
+    evidence: str = ""
+
+
+@dataclass(slots=True)
 class RuleContext:
     capture: FunctionCapture
     text: str
@@ -83,6 +96,7 @@ class RuleContext:
     call_sites: list[CallSiteFact] = field(default_factory=list)
     labels: list[LabelFact] = field(default_factory=list)
     literals: list[LiteralFact] = field(default_factory=list)
+    flow_facts: list[FlowFact] = field(default_factory=list)
     semantic_comment_kinds: set[str] = field(default_factory=set)
 
 
@@ -99,6 +113,7 @@ def build_rule_context(
     text: str | None = None,
     profile_function_lookup: Callable[[str], dict[str, Any]] | None = None,
     semantic_comments: list[dict[str, Any]] | None = None,
+    flow_rewrites: list[FlowRewrite] | None = None,
 ) -> RuleContext:
     rule_text = capture.pseudocode if text is None else text
     lvar_facts = _lvar_facts(capture)
@@ -116,6 +131,7 @@ def build_rule_context(
         call_sites=_call_site_facts(rule_text or ""),
         labels=_label_facts(rule_text or ""),
         literals=_literal_facts(rule_text or ""),
+        flow_facts=_flow_facts(flow_rewrites),
         semantic_comment_kinds=_semantic_comment_kinds(semantic_comments),
     )
 
@@ -232,6 +248,29 @@ def _label_facts(text: str) -> list[LabelFact]:
 
 def _literal_facts(text: str) -> list[LiteralFact]:
     return [LiteralFact(value=match.group(0), span=match.span()) for match in _LITERAL_RE.finditer(text)]
+
+
+def _flow_facts(flow_rewrites: list[FlowRewrite] | None) -> list[FlowFact]:
+    if not flow_rewrites:
+        return []
+    result = []
+    for flow in flow_rewrites:
+        if not flow.dispatcher or not flow.recovered_cases:
+            continue
+        result.append(
+            FlowFact(
+                kind=flow.kind,
+                dispatcher=flow.dispatcher,
+                recovered_cases=list(flow.recovered_cases),
+                case_body_states=dict(flow.case_body_states),
+                case_anchors=dict(flow.case_anchors),
+                case_labels=dict(flow.case_labels),
+                confidence=float(flow.confidence),
+                export_only=bool(flow.export_only),
+                evidence=flow.evidence,
+            )
+        )
+    return result
 
 
 def _literal_values(text: str) -> list[str]:

@@ -161,6 +161,7 @@ Allowed v2 preview/export-only emission kinds:
 
 ```text
 call_arg_rewrite
+flow
 text_rewrite
 ```
 
@@ -170,7 +171,6 @@ Future reserved kinds:
 warning
 cleanup_label
 symbol_alias
-flow
 ```
 
 ## RuleContext
@@ -207,6 +207,7 @@ class RuleContext:
     call_sites: list[CallSiteFact]
     labels: list[LabelFact]
     literals: list[LiteralFact]
+    flow_facts: list[FlowFact]
 ```
 
 `CallSiteFact` records the call name, full call span, argument list, absolute
@@ -228,6 +229,12 @@ including header, return type, parameter names/types/kinds, parameter enum tags,
 and alias metadata. Missing or failed profile lookups leave the function absent
 from the profile fact map instead of failing rule matching.
 
+`FlowFact` records already recovered `FlowRewrite` dispatcher evidence,
+including dispatcher name, recovered case count, case body states, source line
+anchors, shared-tail labels, confidence, export-only status, and recovery
+evidence. Flow rules consume these facts only after the hard-coded conservative
+flow recovery pass has found enough branch evidence.
+
 The first implementation can use regex-based fact extraction. Ctree-identity based facts can be added later.
 
 ## Rule Phases
@@ -245,6 +252,7 @@ Supported preview/export-only v2 phases:
 
 ```text
 call_arg_rewrite
+flow
 text_rewrite
 ```
 
@@ -254,7 +262,6 @@ Reserved future phases:
 symbol_alias
 warning
 cleanup_label
-flow
 ```
 
 Recommended policy:
@@ -268,8 +275,8 @@ Recommended policy:
 7. `call_arg_rewrite` emits profile-backed argument rewrite candidates.
 8. `text_rewrite` requires a semantic comment gate, confidence gate, and export-only behavior.
 
-Except for v2 `call_arg_rewrite` and `text_rewrite`, reserved phases must be
-rejected by the validator until they have explicit preview/export-only
+Except for v2 `call_arg_rewrite`, `flow`, and `text_rewrite`, reserved phases
+must be rejected by the validator until they have explicit preview/export-only
 boundaries.
 
 ## JSON Rule Format
@@ -394,7 +401,48 @@ scope gate. Static `function_name` values must appear in that gate; binding-base
 function names are allowed only with an explicit call scope gate for later typed
 matchers.
 
-Current v1 application procedure:
+Preview-only v2 flow report example:
+
+```json
+{
+  "schema_version": 2,
+  "id": "project.flow_reports",
+  "description": "Report recovered switch dispatcher evidence.",
+  "rules": [
+    {
+      "id": "project.flow.dispatcher_review",
+      "phase": "flow",
+      "priority": 40,
+      "confidence": 0.90,
+      "scope": {
+        "text_contains": "switch"
+      },
+      "match": {
+        "flow_case_count_min": 4,
+        "flow_dispatcher_regex": "^(code|infoClass|systemInformationClass)$",
+        "flow_body_state_any": [
+          "single_statement_body",
+          "complete_branch_slice"
+        ]
+      },
+      "emit": {
+        "kind": "flow",
+        "flow_kind": "switch_recovery_review",
+        "summary": "Recovered $case_count cases for $dispatcher",
+        "preview_only": true,
+        "evidence": "Already recovered conservative flow evidence"
+      }
+    }
+  ]
+}
+```
+
+The validator requires `preview_only: true`, a non-empty `flow_kind`, and
+`flow_case_count_min >= 3`. Flow rules consume already recovered flow facts and
+never synthesize switch bodies or replace the hard-coded conservative flow
+recovery path.
+
+Current v2 application procedure:
 
 1. Build `RuleContext` from the current capture.
 2. Load valid builtin, project-local, user-global, and explicit rule packs.
@@ -433,6 +481,9 @@ Supported v2 match operators add:
 ```text
 call_arg_count
 call_arg_literal
+flow_body_state_any
+flow_case_count_min
+flow_dispatcher_regex
 ```
 
 Operator behavior:
@@ -450,6 +501,10 @@ Operator behavior:
   argument count.
 - `call_arg_literal`: matches a specific call site by function name, argument
   index, and exact argument text.
+- `flow_case_count_min`: matches already recovered flow facts with at least the
+  requested number of cases. Values below 3 are rejected by the validator.
+- `flow_dispatcher_regex`: matches the recovered dispatcher name.
+- `flow_body_state_any`: matches if any recovered case body state is present.
 
 The initial implementation does not build a nested expression parser. Where
 call argument parsing is needed, rule phases should reuse the shared
@@ -479,6 +534,16 @@ Preview text rewrite conflict policy:
 4. Before/after text application remains deferred until style and whitespace
    hygiene checks are implemented.
 
+Preview flow conflict policy:
+
+1. Only one flow report candidate may win for the same dispatcher and
+   `flow_kind`.
+2. Conflicts use the same `override_of`, `priority`, and `confidence` ranking
+   as other rewrite emissions.
+3. `flow` emits report-only preview candidates and does not change
+   `CleanPlan.flow_rewrites`, rendered pseudocode, switch outlines, or IDB
+   state.
+
 Warning/comment dedupe:
 
 1. Keep only one comment with the same `comment_kind` and evidence.
@@ -494,7 +559,7 @@ The CLI and IDA export can write:
 <function>.rule-report.json
 ```
 
-Current v1 structure:
+Current report structure:
 
 ```json
 {
@@ -532,7 +597,7 @@ Current v1 structure:
 
 The exported report contains `matched_rules`, `rewrite_emissions`,
 `rejected_emissions`, `load_errors`, and `validation_errors`.
-`rewrite_emissions` is report-only for v2 `call_arg_rewrite` and
+`rewrite_emissions` is report-only for v2 `call_arg_rewrite`, `flow`, and
 `text_rewrite` candidates and can record `applied`, `shadowed`, or `rejected`
 status without adding IDB write authority. A future UI summary can show counts
 only:
@@ -627,7 +692,18 @@ Target scope:
 5. Preserve existing firmware/provider-list tests before allowing any renderer
    parity migration.
 
-### Phase 5: IDA UX
+### Phase 5: Flow Report Migration
+
+Implemented flow-reporting scope:
+
+1. Support preview-only `flow` rules over already recovered `FlowRewrite`
+   facts.
+2. Require `flow_case_count_min >= 3` and `preview_only: true`.
+3. Record applied, shadowed, and rejected flow candidates in the rule report.
+4. Preserve existing hard-coded flow recovery, rendered pseudocode, switch
+   outlines, and IDB-write behavior.
+
+### Phase 6: IDA UX
 
 Target scope:
 
@@ -663,5 +739,6 @@ The first production-safe slice should stay narrow:
 9. User-global `%APPDATA%\PseudoForge\rules` support.
 10. No behavioral change for existing tests unless intentionally documented.
 
-`flow` should remain a reserved skeleton concept until the next implementation
-phase; `call_arg_rewrite` and `text_rewrite` are report-only preview phases.
+`call_arg_rewrite`, `flow`, and `text_rewrite` are report-only preview phases.
+They are not replacement paths for hard-coded renderer behavior until parity
+coverage proves the replacement boundary.

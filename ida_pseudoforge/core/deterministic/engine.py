@@ -71,6 +71,7 @@ class RuleEngine:
 def _resolve_conflicts(emissions, report: RuleReport):
     rename_groups = defaultdict(list)
     call_arg_rewrite_groups = defaultdict(list)
+    flow_groups = defaultdict(list)
     text_rewrites = []
     seen_renames = set()
     passthrough = []
@@ -89,6 +90,12 @@ def _resolve_conflicts(emissions, report: RuleReport):
                 _record_rewrite_emission(report, emission, "rejected", "call_arg_rewrite target is incomplete")
                 continue
             call_arg_rewrite_groups[key].append(emission)
+        elif emission.kind == "flow":
+            key = _flow_rewrite_key(emission)
+            if not key:
+                _record_rewrite_emission(report, emission, "rejected", "flow target is incomplete")
+                continue
+            flow_groups[key].append(emission)
         elif emission.kind == "text_rewrite":
             span = _text_rewrite_span(emission)
             if span is None:
@@ -129,6 +136,20 @@ def _resolve_conflicts(emissions, report: RuleReport):
                 "call_arg_rewrite conflict on %s[%s] won by %s" % (key[0], key[1], winner.rule_id),
                 winner_rule_id=winner.rule_id,
             )
+    for key, group in flow_groups.items():
+        winner = max(group, key=lambda emission: _emission_rank(emission, group))
+        result.append(winner)
+        _record_rewrite_emission(report, winner, "applied")
+        for emission in group:
+            if emission is winner:
+                continue
+            _record_rewrite_emission(
+                report,
+                emission,
+                "shadowed",
+                "flow conflict on %s/%s won by %s" % (key[0], key[1], winner.rule_id),
+                winner_rule_id=winner.rule_id,
+            )
     result.extend(_resolve_text_rewrite_conflicts(text_rewrites, report))
     result.extend(passthrough)
     return result
@@ -156,6 +177,14 @@ def _call_arg_rewrite_key(emission) -> tuple[str, int] | None:
     if not function_name or not isinstance(argument_index, int) or isinstance(argument_index, bool) or argument_index < 0:
         return None
     return (function_name, argument_index)
+
+
+def _flow_rewrite_key(emission) -> tuple[str, str] | None:
+    dispatcher = str(emission.payload.get("dispatcher", ""))
+    flow_kind = str(emission.payload.get("flow_kind", ""))
+    if not dispatcher or not flow_kind:
+        return None
+    return (dispatcher, flow_kind)
 
 
 def _text_rewrite_span(emission) -> tuple[int, int] | None:
@@ -250,4 +279,8 @@ def _reject_rule(report: RuleReport, rule, reason: str) -> None:
 
 def _is_rewrite_rule(rule) -> bool:
     kind = str((rule.emit or {}).get("kind", ""))
-    return rule.phase in {"call_arg_rewrite", "text_rewrite"} or kind in {"call_arg_rewrite", "text_rewrite"}
+    return rule.phase in {"call_arg_rewrite", "flow", "text_rewrite"} or kind in {
+        "call_arg_rewrite",
+        "flow",
+        "text_rewrite",
+    }

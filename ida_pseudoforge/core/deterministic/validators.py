@@ -133,6 +133,8 @@ def _validate_rule(rule: dict[str, Any], prefix: str, schema_version: int) -> li
     errors.extend(_validate_match_shape(match, "%s.match" % prefix))
     if phase == "text_rewrite":
         errors.extend(_validate_text_rewrite_match(match, "%s.match" % prefix))
+    elif phase == "flow":
+        errors.extend(_validate_flow_match(match, "%s.match" % prefix))
     if not any(key in match for key in supported_match_operators):
         errors.append("%s.match must define at least one supported operator" % prefix)
 
@@ -158,7 +160,7 @@ def _validate_operator_map(data: dict[str, Any], supported: set[str], prefix: st
 
 def _validate_regexes(match: dict[str, Any], prefix: str) -> list[str]:
     errors = []
-    for key in ("regex", "assignment_regex", "before_regex"):
+    for key in ("regex", "assignment_regex", "before_regex", "flow_dispatcher_regex"):
         if key not in match:
             continue
         pattern = match.get(key)
@@ -193,6 +195,10 @@ def _validate_match_values(match: dict[str, Any], prefix: str) -> list[str]:
         errors.extend(_validate_call_arg_count_match(match.get("call_arg_count"), "%s.call_arg_count" % prefix))
     if "call_arg_literal" in match:
         errors.extend(_validate_call_arg_literal_match(match.get("call_arg_literal"), "%s.call_arg_literal" % prefix))
+    if "flow_case_count_min" in match:
+        errors.extend(_validate_flow_case_count_min(match.get("flow_case_count_min"), "%s.flow_case_count_min" % prefix))
+    if "flow_body_state_any" in match:
+        errors.extend(_validate_string_or_string_list(match.get("flow_body_state_any"), "%s.flow_body_state_any" % prefix))
     return errors
 
 
@@ -207,6 +213,16 @@ def _validate_text_rewrite_match(match: dict[str, Any], prefix: str) -> list[str
     if "before_regex" in match:
         return []
     return ["%s.before_regex is required for text_rewrite" % prefix]
+
+
+def _validate_flow_match(match: dict[str, Any], prefix: str) -> list[str]:
+    errors: list[str] = []
+    if "flow_case_count_min" not in match:
+        errors.append("%s.flow_case_count_min is required for flow" % prefix)
+    for key in ("regex", "assignment_regex", "before_regex", "call_arg_count", "call_arg_literal"):
+        if key in match:
+            errors.append("%s.%s is not supported for flow" % (prefix, key))
+    return errors
 
 
 def _validate_scope_regexes(scope: dict[str, Any], prefix: str) -> list[str]:
@@ -263,6 +279,12 @@ def _validate_call_arg_literal_match(value: object, prefix: str) -> list[str]:
     return errors
 
 
+def _validate_flow_case_count_min(value: object, prefix: str) -> list[str]:
+    if not isinstance(value, int) or isinstance(value, bool) or value < 3:
+        return ["%s must be an integer >= 3" % prefix]
+    return []
+
+
 def _is_real_number(value: object) -> bool:
     return isinstance(value, (int, float)) and not isinstance(value, bool)
 
@@ -290,6 +312,8 @@ def _validate_emit(emit: dict[str, Any], phase: object, prefix: str, schema_vers
                 errors.append("%s.%s is required" % (prefix, field_name))
     elif kind == "call_arg_rewrite":
         errors.extend(_validate_call_arg_rewrite_emit(emit, prefix))
+    elif kind == "flow":
+        errors.extend(_validate_flow_emit(emit, prefix))
     elif kind == "text_rewrite":
         errors.extend(_validate_text_rewrite_emit(emit, prefix))
     return errors
@@ -312,6 +336,17 @@ def _validate_text_rewrite_emit(emit: dict[str, Any], prefix: str) -> list[str]:
     errors: list[str] = []
     if not isinstance(emit.get("replacement"), str) or not emit.get("replacement"):
         errors.append("%s.replacement is required" % prefix)
+    if emit.get("preview_only") is not True:
+        errors.append("%s.preview_only must be true" % prefix)
+    return errors
+
+
+def _validate_flow_emit(emit: dict[str, Any], prefix: str) -> list[str]:
+    errors: list[str] = []
+    if not isinstance(emit.get("flow_kind"), str) or not emit.get("flow_kind"):
+        errors.append("%s.flow_kind is required" % prefix)
+    if "summary" in emit and not isinstance(emit.get("summary"), str):
+        errors.append("%s.summary must be a string" % prefix)
     if emit.get("preview_only") is not True:
         errors.append("%s.preview_only must be true" % prefix)
     return errors

@@ -10,6 +10,7 @@ from ida_pseudoforge.core.lvar_analysis import build_clean_plan
 from ida_pseudoforge.core.render import render_cleaned_pseudocode
 from tests.helpers import (
     _call_arg_rewrite_rule,
+    _flow_rule,
     _rename_rule,
     _rule_pack,
     _semantic_comment_rule,
@@ -23,6 +24,26 @@ __int64 __fastcall RuleIntegrationResourceSample(void *Resource)
   ExAcquireResourceExclusiveLite(Resource, 1u);
   ExReleaseResourceLite(Resource);
   return 0;
+}
+"""
+
+
+FLOW_RULE_SAMPLE = r"""
+__int64 __fastcall ProjectFlowReportSample(int code)
+{
+  switch ( code )
+  {
+    case 1:
+      return 1;
+    case 2:
+      return 2;
+    case 3:
+      return 3;
+    case 4:
+      return 4;
+    default:
+      return 0;
+  }
 }
 """
 
@@ -89,6 +110,29 @@ __int64 __fastcall ProjectTextRewriteReportSample(void *inputBuffer)
             rendered = render_cleaned_pseudocode(capture, plan)
             self.assertIn("ProbeForRead(inputBuffer, 8, 1);", rendered)
             self.assertNotIn("sizeof(*inputBuffer)", rendered)
+
+    def test_build_clean_plan_reports_v2_flow_without_rendering_from_rules(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            rules_dir = temp_path / "pseudoforge_rules"
+            rules_dir.mkdir()
+            (rules_dir / "flow_report.json").write_text(
+                json.dumps(_rule_pack([_flow_rule()], schema_version=2)),
+                encoding="utf-8",
+            )
+            capture = capture_from_pseudocode(FLOW_RULE_SAMPLE, source_path=str(temp_path / "sample.cpp"))
+            plan = build_clean_plan(capture, rule_dirs=[rules_dir])
+
+            flow_rewrites = [item for item in plan.rule_report["rewrite_emissions"] if item["kind"] == "flow"]
+            self.assertEqual(1, len(flow_rewrites))
+            self.assertEqual("applied", flow_rewrites[0]["status"])
+            self.assertTrue(flow_rewrites[0]["preview_only"])
+            self.assertEqual("code", flow_rewrites[0]["payload"]["dispatcher"])
+            self.assertEqual(4, flow_rewrites[0]["payload"]["case_count"])
+            self.assertEqual("Recovered 4 cases for code", flow_rewrites[0]["payload"]["summary"])
+            rendered = render_cleaned_pseudocode(capture, plan)
+            self.assertIn("switch ( code )", rendered)
+            self.assertNotIn("switch_recovery_review", rendered)
 
     def test_builtin_call_arg_rewrite_report_mirrors_boolean_kernel_api_cleanup(self) -> None:
         capture = capture_from_pseudocode(

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 
-from ida_pseudoforge.core.deterministic.context import CallSiteFact, RuleContext
+from ida_pseudoforge.core.deterministic.context import CallSiteFact, FlowFact, RuleContext
 from ida_pseudoforge.core.deterministic.schema import Rule, RuleMatch
 
 
@@ -14,6 +14,9 @@ def match_regex_rule(rule: Rule, context: RuleContext) -> list[RuleMatch]:
         return []
     call_arg_matches = _call_arg_gate_matches(match_data, context)
     if call_arg_matches == []:
+        return []
+    flow_matches = _flow_gate_matches(match_data, context)
+    if flow_matches == []:
         return []
     if "assignment_regex" in match_data:
         return _regex_matches(rule, context, str(match_data.get("assignment_regex", "")), assignment=True)
@@ -33,6 +36,24 @@ def match_regex_rule(rule: Rule, context: RuleContext) -> list[RuleMatch]:
                 emission_kind=str(rule.emit.get("kind", "")),
             )
             for call_site in call_arg_matches
+        ]
+    if flow_matches is not None:
+        return [
+            RuleMatch(
+                rule_id=rule.id,
+                phase=rule.phase,
+                confidence=rule.confidence,
+                bindings={
+                    "dispatcher": flow.dispatcher,
+                    "case_count": str(len(flow.recovered_cases)),
+                    "flow_kind": flow.kind,
+                },
+                span=None,
+                evidence=str(rule.emit.get("evidence", "") or flow.evidence or rule.id),
+                emission_kind=str(rule.emit.get("kind", "")),
+                metadata={"flow": _flow_fact_payload(flow)},
+            )
+            for flow in flow_matches
         ]
     if _has_text_match_operator(match_data):
         return [
@@ -124,6 +145,56 @@ def _call_arg_gate_matches(match_data: dict[str, object], context: RuleContext) 
         if all(_call_site_matches_gate(call_site, kind, value) for kind, value in gates):
             result.append(call_site)
     return result
+
+
+def _flow_gate_matches(match_data: dict[str, object], context: RuleContext) -> list[FlowFact] | None:
+    gates = []
+    if "flow_case_count_min" in match_data:
+        gates.append(("case_count_min", match_data.get("flow_case_count_min")))
+    if "flow_dispatcher_regex" in match_data:
+        gates.append(("dispatcher_regex", match_data.get("flow_dispatcher_regex")))
+    if "flow_body_state_any" in match_data:
+        gates.append(("body_state_any", match_data.get("flow_body_state_any")))
+    if not gates:
+        return None
+    result = []
+    for flow in context.flow_facts:
+        if all(_flow_matches_gate(flow, kind, value) for kind, value in gates):
+            result.append(flow)
+    return result
+
+
+def _flow_matches_gate(flow: FlowFact, kind: str, value: object) -> bool:
+    if kind == "case_count_min":
+        if not isinstance(value, int) or isinstance(value, bool) or value < 3:
+            return False
+        return len(flow.recovered_cases) >= value
+    if kind == "dispatcher_regex":
+        if not isinstance(value, str) or not value:
+            return False
+        return re.search(value, flow.dispatcher or "") is not None
+    if kind == "body_state_any":
+        states = _string_list(value)
+        if not states:
+            return False
+        present = {str(item) for item in flow.case_body_states.values()}
+        return any(state in present for state in states)
+    return False
+
+
+def _flow_fact_payload(flow: FlowFact) -> dict[str, object]:
+    return {
+        "flow_kind": flow.kind,
+        "dispatcher": flow.dispatcher,
+        "case_count": len(flow.recovered_cases),
+        "recovered_cases": list(flow.recovered_cases),
+        "case_body_states": {str(key): value for key, value in flow.case_body_states.items()},
+        "case_anchors": {str(key): value for key, value in flow.case_anchors.items()},
+        "case_labels": {str(key): value for key, value in flow.case_labels.items()},
+        "flow_confidence": flow.confidence,
+        "export_only": flow.export_only,
+        "flow_evidence": flow.evidence,
+    }
 
 
 def _call_site_matches_gate(call_site: CallSiteFact, kind: str, value: object) -> bool:

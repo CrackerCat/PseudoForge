@@ -29,7 +29,7 @@ from ida_pseudoforge.core.normalize import (
     safe_identifier_replace,
 )
 from ida_pseudoforge.core.pattern_renames import pattern_renames
-from ida_pseudoforge.core.plan_schema import CleanPlan, FunctionCapture, RenameSuggestion
+from ida_pseudoforge.core.plan_schema import CleanPlan, FlowRewrite, FunctionCapture, RenameSuggestion
 from ida_pseudoforge.core.validation import validate_renames
 
 
@@ -61,6 +61,7 @@ def build_clean_plan(
         + _rule_semantic_comments(capture, rename_map, rule_engine, rule_report)
     )
     _rule_call_arg_rewrite_report(capture, rename_map, rule_engine, rule_report)
+    _rule_flow_rewrite_report(capture, rename_map, flow_rewrites, rule_engine, rule_report)
     _rule_text_rewrite_report(capture, rename_map, comments, rule_engine, rule_report)
     combined_warnings = _dedupe_warnings(
         _filter_shadowed_rename_warnings(
@@ -143,6 +144,26 @@ def _rule_call_arg_rewrite_report(
     engine.run(
         build_rule_context(capture, text=text, profile_function_lookup=kernel_function_metadata),
         phases={"call_arg_rewrite"},
+        report=report,
+    )
+
+
+def _rule_flow_rewrite_report(
+    capture: FunctionCapture,
+    rename_map: dict[str, str],
+    flow_rewrites: list[FlowRewrite],
+    engine: RuleEngine,
+    report: RuleReport,
+) -> None:
+    text = safe_identifier_replace(capture.pseudocode, rename_map)
+    engine.run(
+        build_rule_context(
+            capture,
+            text=text,
+            profile_function_lookup=kernel_function_metadata,
+            flow_rewrites=flow_rewrites,
+        ),
+        phases={"flow"},
         report=report,
     )
 
