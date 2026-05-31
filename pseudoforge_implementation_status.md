@@ -88,6 +88,8 @@ Implemented in this folder:
      `ida_pseudoforge.core.render._finalize_rendered_c_like_text` import path
    - critical-region entry rewrite and LIST_ENTRY/provider-link hint annotation
      live in `ida_pseudoforge/core/render_kernel_hints.py`
+   - low-byte parameter call-argument cleanup lives in
+     `ida_pseudoforge/core/render_call_args.py`
    - `Show current analysis result` displays only the cached current function `.forge` section and does not trigger decompile, LLM, or `.forge` refresh work
    - top-level `Analyzed functions...` action opens a chooser from cached `.forge` section markers instead of opening the full aggregate file
    - switch outline export
@@ -177,6 +179,7 @@ Implemented in this folder:
    - `tests/test_core_engine.py`
    - `tests/test_ida_plugin_safety.py`
    - `tests/test_render_callbacks.py`
+   - `tests/test_render_call_args.py`
    - `tests/test_render_dispatcher.py`
    - `tests/test_render_driver_entry.py`
    - `tests/test_render_flow.py`
@@ -194,7 +197,7 @@ Implemented in this folder:
    - `tests/test_pseudoforge_free_cli.py`
    - `tests/test_release_pseudoforge.py`
    - renderer golden snapshots under `tests/snapshots`
-   - current suite covers 249 unit tests
+   - current suite covers 252 unit tests
 
 ## Latest Implementation Notes
 
@@ -254,6 +257,9 @@ P1 renderer snapshot protection update:
   LIST_ENTRY/provider-link comments now lives in
   `ida_pseudoforge/core/render_kernel_hints.py` while preserving the public
   private-helper aliases imported through `ida_pseudoforge.core.render`.
+- Low-byte parameter call-argument cleanup now lives in
+  `ida_pseudoforge/core/render_call_args.py` while preserving the public
+  private-helper alias imported through `ida_pseudoforge.core.render`.
 
 P1 profile loader diagnostics update:
 
@@ -697,6 +703,17 @@ python -B -m compileall .\pseudoforge.py .\ida_pseudoforge .\tests .\tools: pass
 git diff --check -- .: passed
 python -B .\tools\pseudoforge_cli.py .\samples\pseudocode\NtSetSystemInformation_switch_renamed.cpp --out $env:TEMP\pseudoforge_cli_kernel_hints_extract_smoke: succeeded
 python -B .\tools\pseudoforge_free_cli.py .\samples\pseudocode\NtSetSystemInformation_switch_renamed.cpp --out $env:TEMP\pseudoforge_free_cli_kernel_hints_extract_smoke --format json --no-progress: succeeded
+```
+
+Call-argument renderer extraction validation:
+
+```text
+python -B -m unittest tests.test_render_call_args tests.test_core_engine.CoreEngineTests.test_known_pvoid_signature_keeps_typed_body_alias tests.test_core_engine.CoreEngineTests.test_builtin_call_arg_rewrite_report_mirrors_boolean_kernel_api_cleanup tests.test_core_engine.CoreEngineTests.test_kernel_api_profile_rewrites_pool_flags_and_tags -v: 6 tests OK
+python -B -m unittest discover -s tests -v: 252 tests OK
+python -B -m compileall .\pseudoforge.py .\ida_pseudoforge .\tests .\tools: passed
+git diff --check -- .: passed
+python -B .\tools\pseudoforge_cli.py .\samples\pseudocode\NtSetSystemInformation_switch_renamed.cpp --out $env:TEMP\pseudoforge_cli_call_args_extract_smoke: succeeded
+python -B .\tools\pseudoforge_free_cli.py .\samples\pseudocode\NtSetSystemInformation_switch_renamed.cpp --out $env:TEMP\pseudoforge_free_cli_call_args_extract_smoke --format json --no-progress: succeeded
 ```
 
 DriverEntry cleanup regression validation:

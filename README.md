@@ -227,6 +227,7 @@ ida_pseudoforge/
     validation.py
     render.py
     render_callbacks.py
+    render_call_args.py
     render_dispatcher.py
     render_driver_entry.py
     render_flow.py
@@ -299,6 +300,7 @@ tests/
   test_profile_loader.py
   test_pseudoforge_free_cli.py
   test_render_callbacks.py
+  test_render_call_args.py
   test_render_dispatcher.py
   test_render_driver_entry.py
   test_render_flow.py

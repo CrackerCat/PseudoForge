@@ -176,6 +176,8 @@ Completed:
 - [x] Moved critical-region entry rewrite and LIST_ENTRY/provider-link hint
   annotation into a scoped `render_kernel_hints` module while preserving public
   render imports.
+- [x] Moved low-byte parameter call-argument cleanup into a scoped
+  `render_call_args` module while preserving public render imports.
 
 Remaining:
 
@@ -187,9 +189,10 @@ Remaining:
 ### Current Evidence
 
 - `ida_pseudoforge/core/render.py` is the largest production module at roughly
-  392 lines after the status, style, dispatcher, IOCTL/IRP, semantic-label,
+  339 lines after the status, style, dispatcher, IOCTL/IRP, semantic-label,
   DriverEntry, callback, IRP dispatch, Zw API, NtSet, warning-display,
-  flow/switch-outline, path-literal, and kernel-hint extraction slices.
+  flow/switch-outline, path-literal, kernel-hint, and call-argument extraction
+  slices.
 - `render_cleaned_pseudocode()` still coordinates many ordered text passes in
   `ida_pseudoforge/core/render.py`.
 - `ida_pseudoforge/core/render.py` preserves the public `write_export_bundle`
@@ -215,6 +218,8 @@ Remaining:
   `ida_pseudoforge/core/render_literals.py`.
 - Critical-region entry rewrite and LIST_ENTRY/provider-link hint annotation
   now live in `ida_pseudoforge/core/render_kernel_hints.py`.
+- Low-byte parameter call-argument cleanup now lives in
+  `ida_pseudoforge/core/render_call_args.py`.
 
 ### Problem
 
