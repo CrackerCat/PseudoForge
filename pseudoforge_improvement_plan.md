@@ -141,6 +141,8 @@ Completed:
 - [x] Moved NTSTATUS literal and status-type rewrite helpers into a scoped
   `render_status` module while keeping `ida_pseudoforge.core.render` imports
   compatible.
+- [x] Moved generated-code style normalization into a scoped `render_style`
+  module with behavior-preserving direct tests and snapshot coverage.
 
 Remaining:
 
@@ -152,14 +154,15 @@ Remaining:
 ### Current Evidence
 
 - `ida_pseudoforge/core/render.py` is the largest production module at roughly
-  2630 lines.
-- `render_cleaned_pseudocode()` in `ida_pseudoforge/core/render.py:61` runs many
-  ordered text passes in one function.
-- `write_export_bundle()` in `ida_pseudoforge/core/render.py:885` is also mixed
-  into the render module.
-- Style normalization lives at `ida_pseudoforge/core/render.py:2602`, sharing the
-  same file with NTSTATUS, dispatcher, IOCTL, driver-entry, callback, and label
-  rewrites.
+  2080 lines after the status and style extraction slices.
+- `render_cleaned_pseudocode()` still coordinates many ordered text passes in
+  `ida_pseudoforge/core/render.py`.
+- `ida_pseudoforge/core/render.py` preserves the public `write_export_bundle`
+  import path as a compatibility wrapper around
+  `ida_pseudoforge/core/export_bundle.py`.
+- Style normalization now lives in `ida_pseudoforge/core/render_style.py`, while
+  dispatcher, IOCTL, driver-entry, callback, and label rewrites remain in
+  `render.py`.
 
 ### Problem
 

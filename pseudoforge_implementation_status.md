@@ -172,12 +172,13 @@ Implemented in this folder:
    - `tests/test_core_engine.py`
    - `tests/test_ida_plugin_safety.py`
    - `tests/test_render_snapshots.py`
+   - `tests/test_render_style.py`
    - `tests/test_profile_loader.py`
    - `tests/test_export_bundle.py`
    - `tests/test_pseudoforge_free_cli.py`
    - `tests/test_release_pseudoforge.py`
    - renderer golden snapshots under `tests/snapshots`
-   - current suite covers 213 unit tests
+   - current suite covers 215 unit tests
 
 ## Latest Implementation Notes
 
@@ -196,6 +197,9 @@ P1 renderer snapshot protection update:
   dispatcher metadata before header/body rendering.
 - NTSTATUS literal replacement, 32-bit status assignment/store replacement, and
   status accumulator type upgrades now live in `ida_pseudoforge/core/render_status.py`.
+- Generated-code style normalization now lives in
+  `ida_pseudoforge/core/render_style.py`, with focused direct module coverage
+  plus existing renderer snapshots preserving output behavior.
 
 P1 profile loader diagnostics update:
 

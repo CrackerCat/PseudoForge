@@ -226,6 +226,8 @@ ida_pseudoforge/
     llm_assist.py
     validation.py
     render.py
+    render_status.py
+    render_style.py
     plan_schema.py
     api_semantics.py
   profiles/
@@ -279,10 +281,14 @@ samples/
   kernel_pattern_driver/
 tests/
   test_core_engine.py
+  test_export_bundle.py
   test_ida_plugin_safety.py
   test_kernel_api_profile_builder.py
   test_llm_cli_provider.py
+  test_profile_loader.py
   test_pseudoforge_free_cli.py
+  test_render_snapshots.py
+  test_render_style.py
   test_release_pseudoforge.py
 ```
 
