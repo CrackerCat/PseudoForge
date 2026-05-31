@@ -10,6 +10,23 @@ from ida_pseudoforge.core import kernel_api
 
 
 class ProfileLoaderTests(unittest.TestCase):
+    def test_built_in_split_kernel_api_profiles_have_manifest_entries(self) -> None:
+        profile_loader.clear_profile_caches()
+        try:
+            manifest = profile_loader.load_profiles_manifest()
+            profiles = manifest.get("profiles", {}) if isinstance(manifest, dict) else {}
+
+            for family, file_name in profile_loader.KERNEL_API_FAMILY_FILES.items():
+                entry = profiles.get(file_name, {})
+
+                self.assertTrue((profile_loader.PROFILE_DIR / file_name).exists(), file_name)
+                self.assertEqual(entry.get("profile_kind"), "kernel_api_%s" % family)
+                self.assertEqual(entry.get("source_version"), "10.0.26100.0")
+                self.assertTrue(entry.get("sha256"), file_name)
+                self.assertTrue(entry.get("counts"), file_name)
+        finally:
+            profile_loader.clear_profile_caches()
+
     def test_active_profile_manifests_reports_loaded_profiles(self) -> None:
         original_dir = profile_loader.PROFILE_DIR
         with tempfile.TemporaryDirectory() as temp_dir:

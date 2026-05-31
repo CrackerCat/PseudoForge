@@ -60,6 +60,7 @@ Implemented in this folder:
    - `NtSetInformationProcess` canonical prototype normalization
    - WDK-backed `kernel_api.json` profile generated from WDK `km` and `shared` headers
    - kernel API profile currently includes 3501 function prototypes, 1760 enums, 8354 structures, 19865 aliases, 58251 macros, and 93592 symbol index entries for WDK 10.0.26100.0
+   - built-in split kernel API profile artifacts now ship for functions, enums, structures, aliases, macros, symbols, and indices, each with manifest metadata
    - profile lookup covers function, structure, alias, macro, enum, and enum member names through the `symbols` index
    - API argument rewrite uses profile metadata for `POOL_FLAGS`, `BOOLEAN`, and pool tag parameters
    - kernel API override profile maps private wrapper prefixes such as `Obp -> Ob`, `Psp -> Ps`, `Iop -> Io`, `Mmp -> Mm`, and `Sep -> Se` when a public WDK prototype exists

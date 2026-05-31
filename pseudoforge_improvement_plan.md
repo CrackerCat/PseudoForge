@@ -304,11 +304,12 @@ Completed:
   indices, and symbols with monolithic profile fallback.
 - [x] Added kernel API profile builder support for split family output via
   `--split-output-dir` and split-only generation via `--split-only`.
+- [x] Generated and shipped built-in split kernel API profile artifacts with
+  manifest entries for functions, enums, structures, aliases, macros, symbols,
+  and indices.
 
 Remaining:
 
-- [ ] Regenerate and ship built-in split kernel API profile artifacts with
-  manifest entries.
 - [ ] Add optional target-build profile selection.
 - [ ] Add cold-load and repeated-lookup performance smoke checks.
 
@@ -318,10 +319,11 @@ Remaining:
 - `ida_pseudoforge/profiles/loader.py:13` loads JSON profiles through an
   unbounded `lru_cache`.
 - `ida_pseudoforge/core/kernel_api.py` uses lookup-family loader paths for
-  function, enum, index, and symbol access, with monolithic fallback while the
-  built-in generated profile remains unsplit.
+  function, enum, index, and symbol access, now backed by built-in split
+  profile artifacts with monolithic fallback.
 - The implementation status records a single WDK 10.0.26100.0-generated profile
-  as the current broad profile.
+  as the current broad profile plus split family artifacts generated from that
+  profile.
 
 ### Problem
 

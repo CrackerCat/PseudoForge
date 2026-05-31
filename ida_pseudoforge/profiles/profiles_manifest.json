@@ -8,12 +8,84 @@
       "builder": "tools/build_kernel_api_profile.py",
       "sha256": "B0D22A9F57C56BFA8DEA4D6E997DCDC9F338071223665F0FCC00A4D6D0D38D64",
       "counts": {
-        "functions": 3501,
-        "enums": 1760,
-        "structures": 8354,
         "aliases": 19865,
+        "enums": 1760,
+        "functions": 3501,
         "macros": 58251,
+        "structures": 8354,
         "symbols": 93592
+      }
+    },
+    "kernel_functions.json": {
+      "profile_kind": "kernel_api_functions",
+      "source": "WDK km/shared headers",
+      "source_version": "10.0.26100.0",
+      "builder": "tools/build_kernel_api_profile.py",
+      "sha256": "405A86E5C26DAD39AF8CD297920B1AF3D52229EA3FA9E95580963745B8BB4045",
+      "counts": {
+        "functions": 3501
+      }
+    },
+    "kernel_enums.json": {
+      "profile_kind": "kernel_api_enums",
+      "source": "WDK km/shared headers",
+      "source_version": "10.0.26100.0",
+      "builder": "tools/build_kernel_api_profile.py",
+      "sha256": "15D9BCACE175D0409BAF4724B1A0AA92E5F487B953A5F26057070DE53DBAFF00",
+      "counts": {
+        "enums": 1760
+      }
+    },
+    "kernel_structures.json": {
+      "profile_kind": "kernel_api_structures",
+      "source": "WDK km/shared headers",
+      "source_version": "10.0.26100.0",
+      "builder": "tools/build_kernel_api_profile.py",
+      "sha256": "716E75FA6B41C06AEA53B2C3B2E9505A6AC3FE60D6E7572926265A7C69411514",
+      "counts": {
+        "structures": 8354
+      }
+    },
+    "kernel_aliases.json": {
+      "profile_kind": "kernel_api_aliases",
+      "source": "WDK km/shared headers",
+      "source_version": "10.0.26100.0",
+      "builder": "tools/build_kernel_api_profile.py",
+      "sha256": "D22B9589FA7AA67A4D545BB11BEC42A36324ABFD41DA1A720D1634A9BDB058BE",
+      "counts": {
+        "aliases": 19865
+      }
+    },
+    "kernel_macros.json": {
+      "profile_kind": "kernel_api_macros",
+      "source": "WDK km/shared headers",
+      "source_version": "10.0.26100.0",
+      "builder": "tools/build_kernel_api_profile.py",
+      "sha256": "A77C5E01EABC24A11663E695CF778782B02ECD9A01FE4D3F1C741112DFA1855C",
+      "counts": {
+        "macros": 58251
+      }
+    },
+    "kernel_symbol_index.json": {
+      "profile_kind": "kernel_api_symbols",
+      "source": "WDK km/shared headers",
+      "source_version": "10.0.26100.0",
+      "builder": "tools/build_kernel_api_profile.py",
+      "sha256": "751391C7E9BEB46A73D169B8156FDBA9F6F46D9D368A1762B8BA361B03996FCD",
+      "counts": {
+        "symbols": 93592
+      }
+    },
+    "kernel_indices.json": {
+      "profile_kind": "kernel_api_indices",
+      "source": "WDK km/shared headers",
+      "source_version": "10.0.26100.0",
+      "builder": "tools/build_kernel_api_profile.py",
+      "sha256": "04074127567AEC2145EBF0177A16461C1CC8EA0E50AF41C948D8FC545AF1051C",
+      "counts": {
+        "function_prefixes": 10,
+        "headers": 436,
+        "rewrite_functions": 258
       }
     },
     "kernel_api_overrides.json": {
