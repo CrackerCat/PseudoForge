@@ -44,6 +44,27 @@ metadata, and runtime impact rather than hand-reviewing every generated entry.
 
 ## P0: Safer Rename Identity Tracking
 
+Status: In progress.
+
+Completed:
+
+- [x] Added optional IDA lvar identity metadata for cfunc-derived locals.
+- [x] Attached captured lvar identity data to IDA-originated rename plans when
+  available.
+- [x] Added identity-aware apply preflight that rejects same-name/different-
+  identity drift before IDB modification.
+- [x] Refused identity-backed IDA apply when current lvar identity cannot be
+  re-read before the write.
+- [x] Preserved legacy name-based fallback when identity metadata is unavailable.
+- [x] Added focused tests for identity match, identity drift, and legacy fallback.
+
+Remaining:
+
+- [ ] Add richer ctree location anchors if a stable Hex-Rays API surface is
+  mapped and tested.
+- [ ] Validate the identity-backed apply path manually inside IDA after a local
+  type/name refresh.
+
 ### Current Evidence
 
 - `pseudoforge_implementation_status.md` lists ctree identity tracking as a known

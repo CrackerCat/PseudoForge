@@ -5,7 +5,13 @@ import unittest
 from pathlib import Path
 
 from ida_pseudoforge.config import LlmConfig, PseudoForgeConfig
-from ida_pseudoforge.core.plan_schema import CleanPlan, FunctionCapture, LocalVariable, RenameSuggestion
+from ida_pseudoforge.core.plan_schema import (
+    CleanPlan,
+    FunctionCapture,
+    LocalVariable,
+    RenameSuggestion,
+    make_lvar_identity,
+)
 from ida_pseudoforge.ida import actions as actions_module
 from ida_pseudoforge.ida import apply_changes as apply_module
 from ida_pseudoforge.ida import async_runner
@@ -172,6 +178,92 @@ class IdaPluginSafetyTests(unittest.TestCase):
         self.assertIn("duplicated", joined)
         self.assertIn("not in the plan", joined)
 
+    def test_preflight_rejects_same_name_different_lvar_identity(self):
+        capture = _capture()
+        plan = CleanPlan(
+            function_ea=capture.ea,
+            function_name=capture.name,
+            input_fingerprint=capture.input_fingerprint(),
+            renames=[
+                RenameSuggestion(
+                    "lvar",
+                    "v1",
+                    "renamedLocal",
+                    0.95,
+                    "rule",
+                    "safe",
+                    identity=make_lvar_identity("v1", "int", False, 1, "stack:-4"),
+                )
+            ],
+        )
+        captured_lvars = [
+            LocalVariable("v1", "int", False, 1, "stack:-4", make_lvar_identity("v1", "int", False, 1, "stack:-4"))
+        ]
+        current_lvars = [
+            LocalVariable("v1", "int", False, 2, "stack:-8", make_lvar_identity("v1", "int", False, 2, "stack:-8"))
+        ]
+
+        accepted, rejected = apply_module.preflight_selected_renames(
+            plan,
+            ["v1"],
+            captured_lvars=captured_lvars,
+            current_lvars=current_lvars,
+        )
+
+        self.assertEqual(accepted, [])
+        self.assertEqual(rejected, ["Current local variable identity changed: v1"])
+
+    def test_preflight_allows_matching_lvar_identity(self):
+        capture = _capture()
+        identity = make_lvar_identity("v1", "int", False, 1, "stack:-4")
+        plan = CleanPlan(
+            function_ea=capture.ea,
+            function_name=capture.name,
+            input_fingerprint=capture.input_fingerprint(),
+            renames=[
+                RenameSuggestion(
+                    "lvar",
+                    "v1",
+                    "renamedLocal",
+                    0.95,
+                    "rule",
+                    "safe",
+                    identity=identity,
+                )
+            ],
+        )
+        lvars = [LocalVariable("v1", "int", False, 1, "stack:-4", identity)]
+
+        accepted, rejected = apply_module.preflight_selected_renames(
+            plan,
+            ["v1"],
+            captured_lvars=lvars,
+            current_lvars=lvars,
+        )
+
+        self.assertEqual([rename.old for rename in accepted], ["v1"])
+        self.assertEqual(rejected, [])
+
+    def test_preflight_uses_legacy_name_fallback_without_lvar_identity(self):
+        capture = _capture()
+        plan = CleanPlan(
+            function_ea=capture.ea,
+            function_name=capture.name,
+            input_fingerprint=capture.input_fingerprint(),
+            renames=[RenameSuggestion("lvar", "v1", "renamedLocal", 0.95, "rule", "safe")],
+        )
+        legacy_lvars = [LocalVariable("v1", "int", False, 1)]
+
+        accepted, rejected = apply_module.preflight_selected_renames(
+            plan,
+            ["v1"],
+            captured_lvars=legacy_lvars,
+            current_lvars=legacy_lvars,
+        )
+
+        self.assertEqual([rename.old for rename in accepted], ["v1"])
+        self.assertEqual(rejected, [])
+
     def test_apply_calls_rename_lvar_only_after_preflight_passes(self):
         capture = _capture()
         plan = _plan(capture)
@@ -236,6 +328,46 @@ class IdaPluginSafetyTests(unittest.TestCase):
         self.assertFalse(choose_calls)
         self.assertEqual(len(warnings), 1)
         self.assertIn("current function no longer matches", warnings[0])
+
+    def test_apply_refuses_identity_backed_rename_when_current_identity_unavailable(self):
+        capture = _capture()
+        identity = make_lvar_identity("v1", "int", False, 1, "stack:-4")
+        plan = CleanPlan(
+            function_ea=capture.ea,
+            function_name=capture.name,
+            input_fingerprint=capture.input_fingerprint(),
+            renames=[RenameSuggestion("lvar", "v1", "renamedLocal", 0.95, "rule", "safe", identity=identity)],
+        )
+        session = PluginAnalysisSession.from_capture_plan(capture, plan, target_path=capture.source_path)
+        actions_module._ANALYSIS_STATE.set(session)
+        warnings = []
+        old_current = actions_module._current_function_identity
+        old_target = actions_module._target_file_path
+        old_warning = actions_module.warning
+        old_info = actions_module.info
+        old_choose = actions_module.choose_renames
+        old_capture_lvars = actions_module.capture_current_lvars
+        old_apply = actions_module.apply_selected_renames
+        actions_module._current_function_identity = lambda: (capture.ea, capture.name)
+        actions_module._target_file_path = lambda: Path(capture.source_path)
+        actions_module.warning = warnings.append
+        actions_module.info = lambda message: None
+        actions_module.choose_renames = lambda plan: ["v1"]
+        actions_module.capture_current_lvars = lambda: (_ for _ in ()).throw(RuntimeError("no lvars"))
+        actions_module.apply_selected_renames = lambda *args, **kwargs: self.fail("identity-backed fallback reached IDB path")
+        try:
+            actions_module._apply_selected_renames_from_session()
+        finally:
+            actions_module._current_function_identity = old_current
+            actions_module._target_file_path = old_target
+            actions_module.warning = old_warning
+            actions_module.info = old_info
+            actions_module.choose_renames = old_choose
+            actions_module.capture_current_lvars = old_capture_lvars
+            actions_module.apply_selected_renames = old_apply
+
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("identity could not be verified", warnings[0])
 
     def test_analyzed_functions_action_reads_cached_forge_without_opening_full_preview(self):
         calls = []

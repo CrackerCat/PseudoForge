@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
@@ -10,6 +11,8 @@ class LocalVariable:
     type: str = ""
     is_arg: bool = False
     index: int = -1
+    location: str = ""
+    identity: str = ""
 
 
 @dataclass(slots=True)
@@ -45,6 +48,7 @@ class RenameSuggestion:
     source: str
     evidence: str
     apply: bool = True
+    identity: str = ""
 
 
 @dataclass(slots=True)
@@ -86,3 +90,24 @@ class CleanPlan:
 
     def active_renames(self) -> list[RenameSuggestion]:
         return [rename for rename in self.renames if rename.apply]
+
+
+def make_lvar_identity(
+    name: str,
+    type_text: str = "",
+    is_arg: bool = False,
+    index: int = -1,
+    location: str = "",
+) -> str:
+    if index < 0 and not location:
+        return ""
+    payload = "\x1f".join(
+        [
+            str(name or ""),
+            str(type_text or ""),
+            "arg" if is_arg else "local",
+            str(index),
+            str(location or ""),
+        ]
+    )
+    return hashlib.sha256(payload.encode("utf-8", errors="replace")).hexdigest()

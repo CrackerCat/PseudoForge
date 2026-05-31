@@ -17,7 +17,7 @@ from ida_pseudoforge.core.render import render_cleaned_pseudocode, write_export_
 from ida_pseudoforge.ida.apply_changes import apply_selected_renames
 from ida_pseudoforge.ida.analysis_state import PluginAnalysisSession, PluginAnalysisState
 from ida_pseudoforge.ida.async_runner import active_group_task, run_background
-from ida_pseudoforge.ida.decompiler import capture_current_function
+from ida_pseudoforge.ida.decompiler import capture_current_function, capture_current_lvars
 from ida_pseudoforge.ida.llm_config_dialog import ask_llm_config, format_llm_summary
 from ida_pseudoforge.ida.thread_helpers import run_on_main_thread
 from ida_pseudoforge.ida.ui_preview import (
@@ -292,12 +292,26 @@ def _apply_selected_renames_from_session() -> None:
         return
 
     log_checkpoint("action.apply.rename.before", selected=len(selected))
-    known_lvar_names = [var.name for var in session.capture.lvars if var.name] or None
+    current_lvars = None
+    try:
+        current_lvars = capture_current_lvars()
+        known_lvar_names = [var.name for var in current_lvars if var.name] or None
+    except Exception as exc:
+        log_checkpoint("action.apply.current_lvars.warning", error=str(exc))
+        if _selected_renames_have_identity(session.plan, selected):
+            warning(
+                "PseudoForge apply refused: current local variable identity could not be verified. "
+                "Run Analyze current function again before applying identity-backed renames."
+            )
+            return
+        known_lvar_names = [var.name for var in session.capture.lvars if var.name] or None
     result = apply_selected_renames(
         session.function_ea,
         session.plan,
         selected,
         known_lvar_names=known_lvar_names,
+        captured_lvars=session.capture.lvars,
+        current_lvars=current_lvars,
     )
     log_checkpoint("action.apply.rename.after", applied=len(result.applied), rejected=len(result.rejected))
     if result.rejected:
@@ -305,6 +319,11 @@ def _apply_selected_renames_from_session() -> None:
         warning("PseudoForge rejected rename(s):\n" + "\n".join(result.rejected[:8]))
     log_output("PseudoForge applied %d rename(s)." % len(result.applied))
     info("PseudoForge applied %d rename(s)." % len(result.applied))
+
+
+def _selected_renames_have_identity(plan: CleanPlan, selected_old_names: list[str]) -> bool:
+    selected = set(selected_old_names)
+    return any(rename.old in selected and bool(rename.identity) for rename in plan.renames)
 
 
 class ConfigureLlmHandler(idaapi.action_handler_t if idaapi else object):

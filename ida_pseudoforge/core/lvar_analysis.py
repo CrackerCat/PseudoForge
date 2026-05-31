@@ -51,6 +51,7 @@ def build_clean_plan(
         suggestions.extend(llm_suggestions)
     suggestions = _dedupe_suggestions(suggestions)
     validated, warnings = validate_renames(capture, suggestions)
+    _attach_rename_identities(validated, capture)
     rename_map = {item.old: item.new for item in validated if item.apply}
     flow_rewrites = recover_flow(capture, rename_map=rename_map)
     cleanup_labels = classify_cleanup_labels(capture)
@@ -236,6 +237,18 @@ def _dedupe_suggestions(suggestions: list[RenameSuggestion]) -> list[RenameSugge
         if current is None or _suggestion_rank(suggestion) > _suggestion_rank(current):
             best[suggestion.old] = suggestion
     return list(best.values())
+
+
+def _attach_rename_identities(renames: list[RenameSuggestion], capture: FunctionCapture) -> None:
+    identities = {var.name: var.identity for var in capture.lvars if var.name and var.identity}
+    for rename in renames:
+        if rename.identity:
+            continue
+        if (rename.kind or "").lower() not in {"arg", "lvar", "local", "param", "parameter", "argument"}:
+            continue
+        identity = identities.get(rename.old, "")
+        if identity:
+            rename.identity = identity
 
 
 def _suggestion_rank(suggestion: RenameSuggestion) -> tuple[int, float]:

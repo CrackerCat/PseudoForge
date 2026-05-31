@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Iterable
 
-from ida_pseudoforge.core.plan_schema import CleanPlan, RenameSuggestion
+from ida_pseudoforge.core.plan_schema import CleanPlan, LocalVariable, RenameSuggestion
 from ida_pseudoforge.core.validation import is_valid_c_identifier
 from ida_pseudoforge.ida.thread_helpers import run_on_main_thread
 
@@ -24,6 +24,8 @@ def apply_selected_renames(
     plan: CleanPlan,
     selected_old_names: Iterable[str],
     known_lvar_names: Iterable[str] | None = None,
+    captured_lvars: Iterable[LocalVariable] | None = None,
+    current_lvars: Iterable[LocalVariable] | None = None,
 ) -> RenameApplyResult:
     if ida_hexrays is None:
         raise RuntimeError("IDA Hex-Rays APIs are not available")
@@ -32,6 +34,8 @@ def apply_selected_renames(
         plan,
         selected_old_names,
         known_lvar_names=known_lvar_names,
+        captured_lvars=captured_lvars,
+        current_lvars=current_lvars,
     )
 
     def do_apply() -> RenameApplyResult:
@@ -50,10 +54,16 @@ def preflight_selected_renames(
     plan: CleanPlan,
     selected_old_names: Iterable[str],
     known_lvar_names: Iterable[str] | None = None,
+    captured_lvars: Iterable[LocalVariable] | None = None,
+    current_lvars: Iterable[LocalVariable] | None = None,
 ) -> tuple[list[RenameSuggestion], list[str]]:
     selected = {str(name) for name in selected_old_names if str(name)}
+    current_by_name = _lvar_map(current_lvars)
+    captured_by_name = _lvar_map(captured_lvars)
     known_names = set(known_lvar_names or [])
-    check_known_names = known_lvar_names is not None
+    if current_lvars is not None:
+        known_names = set(current_by_name)
+    check_known_names = known_lvar_names is not None or current_lvars is not None
     by_old = {rename.old: rename for rename in plan.renames}
     accepted: list[RenameSuggestion] = []
     rejected: list[str] = []
@@ -74,6 +84,10 @@ def preflight_selected_renames(
         if check_known_names and rename.old not in known_names:
             rejected.append("Current local variable is missing: %s" % rename.old)
             continue
+        identity_error = _identity_mismatch(rename, captured_by_name, current_by_name)
+        if identity_error:
+            rejected.append(identity_error)
+            continue
         if not is_valid_c_identifier(rename.new):
             rejected.append("Rename target is not a valid C identifier: %s" % rename.new)
             continue
@@ -87,3 +101,31 @@ def preflight_selected_renames(
         accepted.append(rename)
 
     return accepted, rejected
+
+
+def _lvar_map(lvars: Iterable[LocalVariable] | None) -> dict[str, LocalVariable]:
+    result: dict[str, LocalVariable] = {}
+    for var in lvars or []:
+        if var.name and var.name not in result:
+            result[var.name] = var
+    return result
+
+
+def _identity_mismatch(
+    rename: RenameSuggestion,
+    captured_by_name: dict[str, LocalVariable],
+    current_by_name: dict[str, LocalVariable],
+) -> str:
+    if not current_by_name:
+        return ""
+    expected = rename.identity
+    captured = captured_by_name.get(rename.old)
+    if not expected and captured is not None:
+        expected = captured.identity
+    current = current_by_name.get(rename.old)
+    actual = current.identity if current is not None else ""
+    if not expected or not actual:
+        return ""
+    if expected == actual:
+        return ""
+    return "Current local variable identity changed: %s" % rename.old

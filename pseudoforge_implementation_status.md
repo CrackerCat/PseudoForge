@@ -174,6 +174,19 @@ Implemented in this folder:
 
 ## Latest Implementation Notes
 
+P0 rename identity hardening update:
+
+- Cfunc-derived local captures now carry optional lvar identity metadata.
+- Rename plans attach captured lvar identity data where available.
+- Apply-selected-renames now rechecks the current lvar identity before calling
+  `ida_hexrays.rename_lvar()` and rejects same-name/different-identity drift.
+- Identity-backed IDA apply is refused if the current lvar identity cannot be
+  re-read before the write.
+- Legacy name-based preflight remains available when identity metadata is not
+  present, preserving offline and older-capture behavior.
+- Focused safety tests cover identity match, identity drift rejection, and
+  legacy fallback.
+
 The current implementation state reflects the `NtSetSystemInformation` and `NtSetInformationProcess` large-dispatcher regression pass:
 
 - `NtSetSystemInformation` preview now uses the canonical native API signature and introduces typed `__m128i *` aliases without changing the underlying decompiler body semantics.

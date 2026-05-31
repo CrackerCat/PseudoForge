@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from ida_pseudoforge.core.capture import capture_from_pseudocode
-from ida_pseudoforge.core.plan_schema import FunctionCapture, LocalVariable
+from ida_pseudoforge.core.plan_schema import FunctionCapture, LocalVariable, make_lvar_identity
 from ida_pseudoforge.ida.thread_helpers import run_on_main_thread
 from ida_pseudoforge.logging import log_checkpoint, log_event, trace_scope
 
@@ -71,18 +71,30 @@ def capture_current_function() -> tuple[FunctionCapture, Any]:
         return run_on_main_thread(do_capture, write=False)
 
 
-def _capture_from_current_pseudocode_view() -> tuple[FunctionCapture, Any] | None:
-    get_widget_vdui = getattr(ida_hexrays, "get_widget_vdui", None)
-    get_current_widget = getattr(ida_kernwin, "get_current_widget", None)
-    if not callable(get_widget_vdui) or not callable(get_current_widget):
-        return None
+def capture_current_lvars() -> list[LocalVariable]:
+    if ida_kernwin is None or ida_hexrays is None or ida_funcs is None:
+        raise RuntimeError("IDA Hex-Rays APIs are not available")
 
-    try:
-        widget = get_current_widget()
-        vdui = get_widget_vdui(widget)
-        cfunc = getattr(vdui, "cfunc", None)
-    except Exception:
-        return None
+    def do_capture() -> list[LocalVariable]:
+        cfunc = _current_view_cfunc()
+        if cfunc is None:
+            ea = ida_kernwin.get_screen_ea()
+            if idaapi is not None and ea == idaapi.BADADDR:
+                raise RuntimeError("No current EA")
+            func = ida_funcs.get_func(ea)
+            if func is None:
+                raise RuntimeError(f"EA 0x{ea:X} is not inside a function")
+            cfunc = ida_hexrays.decompile(func)
+        if cfunc is None:
+            raise RuntimeError("Hex-Rays failed to decompile current function")
+        return _extract_lvars_from_cfunc(cfunc)
+
+    with trace_scope("decompiler.capture_lvars.run_on_main_thread"):
+        return run_on_main_thread(do_capture, write=False)
+
+
+def _capture_from_current_pseudocode_view() -> tuple[FunctionCapture, Any] | None:
+    cfunc = _current_view_cfunc()
     if cfunc is None:
         return None
 
@@ -96,6 +108,20 @@ def _capture_from_current_pseudocode_view() -> tuple[FunctionCapture, Any] | Non
     capture.lvars = merge_lvars_from_text_and_cfunc(capture.lvars, _extract_lvars_from_cfunc(cfunc))
     log_event("capture.vdui.reuse function=\"%s\" ea=0x%X" % (_ascii_for_log(name), int(ea)))
     return capture, cfunc
+
+
+def _current_view_cfunc() -> Any | None:
+    get_widget_vdui = getattr(ida_hexrays, "get_widget_vdui", None)
+    get_current_widget = getattr(ida_kernwin, "get_current_widget", None)
+    if not callable(get_widget_vdui) or not callable(get_current_widget):
+        return None
+
+    try:
+        widget = get_current_widget()
+        vdui = get_widget_vdui(widget)
+        return getattr(vdui, "cfunc", None)
+    except Exception:
+        return None
 
 
 def _cfunc_entry_ea(cfunc: Any) -> int | None:
@@ -164,8 +190,50 @@ def _extract_lvars_from_cfunc(cfunc: Any) -> list[LocalVariable]:
                 is_arg = bool(method())
             except Exception:
                 is_arg = False
-        result.append(LocalVariable(name=name, type=type_text, is_arg=is_arg, index=index))
+        location = _extract_lvar_location(lvar)
+        identity = make_lvar_identity(name, type_text, is_arg, index, location)
+        result.append(
+            LocalVariable(
+                name=name,
+                type=type_text,
+                is_arg=is_arg,
+                index=index,
+                location=location,
+                identity=identity,
+            )
+        )
     return result
+
+
+def _extract_lvar_location(lvar: Any) -> str:
+    for attr in ("location", "loc", "lvloc"):
+        value = getattr(lvar, attr, None)
+        if callable(value):
+            try:
+                value = value()
+            except Exception:
+                continue
+        text = _stable_identity_text(value)
+        if text:
+            return text
+    return ""
+
+
+def _stable_identity_text(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, (str, int, bool)):
+        return str(value)
+    text = str(value)
+    lowered = text.lower()
+    if (
+        " object at " in lowered
+        or " at 0x" in lowered
+        or "swig object" in lowered
+        or text.startswith("<") and text.endswith(">")
+    ):
+        return ""
+    return text
 
 
 def merge_lvars_from_text_and_cfunc(
@@ -185,6 +253,8 @@ def merge_lvars_from_text_and_cfunc(
                 type=var.type,
                 is_arg=var.is_arg,
                 index=var.index,
+                location=var.location,
+                identity=var.identity,
             )
             result.append(by_name[var.name])
             continue
@@ -194,6 +264,10 @@ def merge_lvars_from_text_and_cfunc(
             existing.is_arg = True
         if existing.index < 0 and var.index >= 0:
             existing.index = var.index
+        if not existing.location and var.location:
+            existing.location = var.location
+        if not existing.identity and var.identity:
+            existing.identity = var.identity
 
     return result
 
