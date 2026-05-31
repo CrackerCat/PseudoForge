@@ -1,3 +1,5 @@
+import json
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -5,6 +7,8 @@ from tools.build_kernel_api_profile import (
     _eval_int_expression,
     _extract_function_declarations,
     _merge_function_semantics,
+    _split_kernel_api_profile,
+    _write_split_profile_files,
 )
 
 
@@ -127,6 +131,50 @@ PsGetSiloContext(
 
         self.assertEqual(metadata["params"][0]["kind"], "flags")
         self.assertEqual(metadata["params"][2]["kind"], "pool_tag")
+
+    def test_split_kernel_api_profile_emits_loader_family_files(self):
+        profile = {
+            "functions": {"ExUnitTest": {"params": []}},
+            "enums": {"BOOLEAN": {"1": "TRUE"}},
+            "structures": {"_UNIT_TEST": {"fields": []}},
+            "aliases": {"PUNIT_TEST": {"target": "_UNIT_TEST *"}},
+            "macros": {"UNIT_TEST_MACRO": {"value": "1"}},
+            "symbols": {"ExUnitTest": [{"kind": "function"}]},
+            "indices": {"rewrite_functions": ["ExUnitTest"]},
+        }
+
+        split = _split_kernel_api_profile(profile)
+
+        self.assertEqual(split["kernel_functions.json"], profile["functions"])
+        self.assertEqual(split["kernel_enums.json"], profile["enums"])
+        self.assertEqual(split["kernel_structures.json"], profile["structures"])
+        self.assertEqual(split["kernel_aliases.json"], profile["aliases"])
+        self.assertEqual(split["kernel_macros.json"], profile["macros"])
+        self.assertEqual(split["kernel_symbol_index.json"], profile["symbols"])
+        self.assertEqual(split["kernel_indices.json"], profile["indices"])
+
+    def test_write_split_profile_files_writes_family_json(self):
+        profile = {
+            "functions": {"ExUnitTest": {"params": []}},
+            "enums": {"BOOLEAN": {"1": "TRUE"}},
+            "indices": {"rewrite_functions": ["ExUnitTest"]},
+        }
+        with tempfile.TemporaryDirectory() as temp_dir:
+            paths = _write_split_profile_files(profile, Path(temp_dir))
+
+            self.assertEqual(len(paths), 7)
+            self.assertEqual(
+                json.loads((Path(temp_dir) / "kernel_functions.json").read_text(encoding="utf-8")),
+                profile["functions"],
+            )
+            self.assertEqual(
+                json.loads((Path(temp_dir) / "kernel_indices.json").read_text(encoding="utf-8")),
+                profile["indices"],
+            )
+            self.assertEqual(
+                json.loads((Path(temp_dir) / "kernel_aliases.json").read_text(encoding="utf-8")),
+                {},
+            )
 
 
 if __name__ == "__main__":

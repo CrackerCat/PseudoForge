@@ -290,6 +290,9 @@ P1 profile loader diagnostics update:
 - Kernel API runtime lookups now use split family loader APIs for functions,
   enums, indices, and symbols when those files are present, with monolithic
   `kernel_api.json` fallback for the current built-in profile.
+- `tools/build_kernel_api_profile.py` can write split family profile files with
+  `--split-output-dir`; `--split-only` skips monolithic output for split-only
+  generation workflows.
 - `tests/test_profile_loader.py` covers invalid JSON warning recording and cache
   reset behavior plus active profile manifest reporting and split-family loader
   fallback behavior.

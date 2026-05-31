@@ -302,10 +302,13 @@ Completed:
   summaries.
 - [x] Added lookup-family kernel API loader paths for split functions, enums,
   indices, and symbols with monolithic profile fallback.
+- [x] Added kernel API profile builder support for split family output via
+  `--split-output-dir` and split-only generation via `--split-only`.
 
 Remaining:
 
-- [ ] Split generated kernel API profile output into smaller artifacts.
+- [ ] Regenerate and ship built-in split kernel API profile artifacts with
+  manifest entries.
 - [ ] Add optional target-build profile selection.
 - [ ] Add cold-load and repeated-lookup performance smoke checks.
 

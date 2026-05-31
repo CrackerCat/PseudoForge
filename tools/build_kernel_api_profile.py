@@ -12,6 +12,15 @@ from typing import Any
 DEFAULT_WDK_INCLUDE_ROOT = Path(r"C:\Program Files (x86)\Windows Kits\10\Include")
 DEFAULT_OUTPUT = Path(__file__).resolve().parents[1] / "ida_pseudoforge" / "profiles" / "kernel_api.json"
 DEFAULT_HEADER_DIRS = ["km", "shared"]
+SPLIT_PROFILE_FILES = {
+    "functions": "kernel_functions.json",
+    "enums": "kernel_enums.json",
+    "structures": "kernel_structures.json",
+    "aliases": "kernel_aliases.json",
+    "macros": "kernel_macros.json",
+    "symbols": "kernel_symbol_index.json",
+    "indices": "kernel_indices.json",
+}
 
 
 FUNCTION_SEMANTICS = {
@@ -75,6 +84,8 @@ def main() -> int:
     parser.add_argument("--all-km-headers", action="store_true")
     parser.add_argument("--directory", action="append", dest="directories", default=[])
     parser.add_argument("--out", default=str(DEFAULT_OUTPUT))
+    parser.add_argument("--split-output-dir", default="")
+    parser.add_argument("--split-only", action="store_true")
     parser.add_argument("--function", action="append", dest="functions", default=[])
     parser.add_argument("--known-only", action="store_true")
     parser.add_argument("--list-versions", action="store_true")
@@ -82,6 +93,8 @@ def main() -> int:
     parser.add_argument("--summary", action="store_true")
     parser.add_argument("--verbose-summary", action="store_true")
     args = parser.parse_args()
+    if args.split_only and not args.split_output_dir:
+        parser.error("--split-only requires --split-output-dir")
 
     include_root = Path(args.wdk_include_root)
     if args.list_versions:
@@ -124,11 +137,33 @@ def main() -> int:
         print(json.dumps(profile, indent=2, sort_keys=True))
         return 0
 
-    out_path = Path(args.out)
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text(json.dumps(profile, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    print("wrote %s from %d WDK headers" % (out_path, len(header_paths)))
+    if not args.split_only:
+        out_path = Path(args.out)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(json.dumps(profile, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        print("wrote %s from %d WDK headers" % (out_path, len(header_paths)))
+    if args.split_output_dir:
+        split_paths = _write_split_profile_files(profile, Path(args.split_output_dir))
+        print("wrote %d split profile files to %s" % (len(split_paths), Path(args.split_output_dir)))
     return 0
+
+
+def _split_kernel_api_profile(profile: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    result = {}
+    for family, file_name in SPLIT_PROFILE_FILES.items():
+        payload = profile.get(family, {})
+        result[file_name] = payload if isinstance(payload, dict) else {}
+    return result
+
+
+def _write_split_profile_files(profile: dict[str, Any], output_dir: Path) -> list[Path]:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    paths = []
+    for file_name, payload in _split_kernel_api_profile(profile).items():
+        path = output_dir / file_name
+        path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        paths.append(path)
+    return paths
 
 
 def _list_wdk_versions(include_root: Path) -> list[str]:

@@ -541,6 +541,7 @@ Regenerate the profile from WDK headers:
 ```powershell
 python -B .\tools\build_kernel_api_profile.py --list-versions
 python -B .\tools\build_kernel_api_profile.py --version 10.0.26100.0
+python -B .\tools\build_kernel_api_profile.py --version 10.0.26100.0 --split-output-dir .\ida_pseudoforge\profiles
 ```
 
 Inspect selected functions without writing a profile:
@@ -557,6 +558,8 @@ Options:
 - `--directory`: WDK include subdirectory; defaults to `km` and `shared`.
 - `--all-km-headers`: parse only `km\*.h` for the selected WDK version.
 - `--out`: output profile path; defaults to `ida_pseudoforge/profiles/kernel_api.json`.
+- `--split-output-dir`: also write split family profiles such as `kernel_functions.json`, `kernel_enums.json`, `kernel_indices.json`, and `kernel_symbol_index.json`.
+- `--split-only`: with `--split-output-dir`, skip writing the monolithic `--out` profile.
 - `--function`: function name to extract; may be repeated.
 - `--known-only`: generate only functions with PseudoForge semantic overlays.
 - `--summary`: print function/enum count summary.
