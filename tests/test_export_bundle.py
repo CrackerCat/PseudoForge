@@ -68,6 +68,8 @@ class ExportBundleTests(unittest.TestCase):
                 self.assertEqual(summary["source_path"], "sample.bin")
                 self.assertIn("raw_vs_cleaned_diff", summary["artifacts"])
                 self.assertEqual(artifacts["summary"], summary["artifacts"]["summary"])
+                self.assertEqual(summary["profile_root"], profile_loader.active_profile_root())
+                self.assertIn("status_codes.json", summary["active_profiles"])
                 self.assertTrue(
                     any(item["name"] == "status_codes.json" for item in summary["profile_manifests"])
                 )

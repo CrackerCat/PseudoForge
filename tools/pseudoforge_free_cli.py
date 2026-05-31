@@ -57,6 +57,8 @@ class _Deps:
     write_export_bundle: Any
     render_cleaned_pseudocode: Any
     active_profile_manifests: Any
+    active_profile_names: Any
+    active_profile_root: Any
     profile_load_warnings: Any
     configure_profile_dir: Any
     LlmConfig: Any
@@ -164,6 +166,8 @@ def _load_deps() -> _Deps:
         from ida_pseudoforge.core.render import render_cleaned_pseudocode
         from ida_pseudoforge.profiles.loader import (
             active_profile_manifests,
+            active_profile_names,
+            active_profile_root,
             configure_profile_dir,
             profile_load_warnings,
         )
@@ -190,6 +194,8 @@ def _load_deps() -> _Deps:
         write_export_bundle=write_export_bundle,
         render_cleaned_pseudocode=render_cleaned_pseudocode,
         active_profile_manifests=active_profile_manifests,
+        active_profile_names=active_profile_names,
+        active_profile_root=active_profile_root,
         profile_load_warnings=profile_load_warnings,
         configure_profile_dir=configure_profile_dir,
         LlmConfig=LlmConfig,
@@ -268,6 +274,8 @@ def _process_input(
         "llm_status": llm_status,
         "rule_load_errors": list((plan.rule_report or {}).get("load_errors", [])),
         "warnings": warnings,
+        "profile_root": deps.active_profile_root(),
+        "active_profiles": deps.active_profile_names(),
         "profile_manifests": deps.active_profile_manifests(),
         "artifacts": artifact_paths,
     }

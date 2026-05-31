@@ -399,7 +399,7 @@ python -B -m unittest discover -s tests -v
 
 ## P1: Interactive Export Parity With IDA Free CLI
 
-Status: In progress.
+Status: Completed.
 
 Completed:
 
@@ -418,11 +418,9 @@ Completed:
   preserving legacy `raw_path`/`cleaned_path`/`diff_path` fields.
 - [x] Added profile manifest metadata to shared export and IDA Free summary
   payloads once manifests exist.
-
-Remaining:
-
-- [ ] Extend profile manifest metadata into future split-profile and
-  target-build selection reports.
+- [x] Extended profile metadata in shared export and IDA Free summary payloads
+  with the active profile root and loaded profile names for target-build
+  selection reports.
 
 ### Current Evidence
 
@@ -436,13 +434,16 @@ Remaining:
   and the completed profile manifest reporting follow-up.
 - IDA batch compare records preserve legacy path fields and now include an
   `artifacts` map with shared export key names.
+- Shared export summaries and IDA Free result summaries now include
+  `profile_root`, `active_profiles`, `profile_manifests`, and
+  `profile_warnings`.
 
-### Current Gap
+### Current State
 
 Interactive IDA export, offline CLI, IDA Free CLI, and IDA batch compare records
-now expose the shared raw/cleaned/diff artifact shape where practical. The
-remaining export metadata work is future split-profile and target-build
-selection reporting.
+now expose the shared raw/cleaned/diff artifact shape where practical. Current
+split-profile and target-build selection metadata is represented through
+`profile_root`, `active_profiles`, profile manifests, and profile warnings.
 
 ### Plan
 

@@ -569,7 +569,8 @@ Options:
 
 `profiles_manifest.json` records source version, profile kind, entry counts,
 and SHA-256 metadata for the built-in profile files. Export summaries include
-the manifest entries for profiles touched during a run.
+the active profile root, loaded profile names, and manifest entries for profiles
+touched during a run.
 
 Smoke-check the split-profile load path without forcing a brittle timing gate:
 
@@ -834,7 +835,7 @@ File purposes:
 - `.raw.cpp`: original captured decompiler text used as analysis input.
 - `.warnings.json`: plan and profile-load warnings as reviewable JSON.
 - `.raw-vs-cleaned.diff`: unified diff from raw pseudocode to cleaned output.
-- `.summary.json` / `.ida-free-summary.json`: per-function export metadata, counts, active profile manifests, profile warnings, and artifact paths.
+- `.summary.json` / `.ida-free-summary.json`: per-function export metadata, counts, active profile root, loaded profile names, active profile manifests, profile warnings, and artifact paths.
 
 Artifact parity:
 

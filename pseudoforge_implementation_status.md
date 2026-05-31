@@ -369,7 +369,8 @@ P1 export artifact parity update:
 - IDA Free CLI keeps the existing `.ida-free-summary.json` summary filename
   without leaving an extra unreported `.summary.json` artifact.
 - Shared export summaries and IDA Free result summaries include active profile
-  manifest metadata when profile manifests exist.
+  root, loaded profile names, and manifest metadata when profile manifests
+  exist.
 - `README.md` documents artifact parity across IDA interactive export, offline
   CLI, and IDA Free CLI.
 - `tests/test_export_bundle.py` covers parity artifact creation and summary
