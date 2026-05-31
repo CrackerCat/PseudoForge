@@ -7,12 +7,10 @@ from ida_pseudoforge.core.forge_store import (
 )
 from ida_pseudoforge.core.capture import capture_from_pseudocode
 from ida_pseudoforge.core.lvar_analysis import build_clean_plan
-from ida_pseudoforge.core.plan_schema import LocalVariable
 from ida_pseudoforge.core.render import (
     render_cleaned_pseudocode,
     render_switch_outline,
 )
-from ida_pseudoforge.ida.decompiler import merge_lvars_from_text_and_cfunc
 from ida_pseudoforge.ida import actions as actions_module
 from ida_pseudoforge.version import VERSION
 
@@ -55,38 +53,6 @@ LABEL_421:
 """
 
 
-MEMBER_RENAME_SAMPLE = r"""
-__int64 __fastcall MemberRenameSample(int a1)
-{
-  KPROCESSOR_MODE PreviousMode;
-  _KPROCESS *Process;
-  ULONG ActiveProcessorCount;
-  ULONG updated;
-
-  PreviousMode = KeGetCurrentThread()->PreviousMode;
-  Process = KeGetCurrentThread()->ApcState.Process;
-  ActiveProcessorCount = KeQueryActiveProcessorCountEx(0xFFFFu);
-  updated = 0;
-  return updated + ActiveProcessorCount;
-}
-"""
-
-
-POOL_ALLOCATION_SAMPLE = r"""
-__int64 __fastcall PoolAllocationSample()
-{
-  void *Pool2;
-
-  Pool2 = (void *)ExAllocatePool2(0x101uLL, 64, 0x50535845u);
-  if ( Pool2 )
-  {
-    return 1;
-  }
-  return 0;
-}
-"""
-
-
 BAD_INVARIANT_RENAME_SAMPLE = r"""
 __int64 __fastcall BadInvariantRenameSample(int a1)
 {
@@ -101,47 +67,6 @@ __int64 __fastcall BadInvariantRenameSample(int a1)
     v7 = a1;
   LOBYTE(v8) = PreviousMode;
   return v7 + v8;
-}
-"""
-
-
-CPU_SET_MASK_SAMPLE = r"""
-__int64 __fastcall NtSetSystemInformation(char *a1, __m128i *a2, __int64 a3)
-{
-  __m128i *v4;
-  int v5;
-  KPROCESSOR_MODE PreviousMode;
-  ULONG updated;
-  unsigned int v110;
-  unsigned __int64 v111;
-  unsigned int v98;
-  int v99;
-  _BYTE *v100;
-  unsigned int v101;
-  __int64 v102;
-  _BYTE v151[256];
-  _BYTE v152[256];
-  _BYTE v153[256];
-
-  v4 = a2;
-  v5 = (int)a1;
-  PreviousMode = KeGetCurrentThread()->PreviousMode;
-  updated = 0;
-  v110 = a3 - 8;
-  v111 = a2->m128i_i64[0];
-  memmove(v153, &a2->m128i_u64[1], v110);
-  if ( v111 >= 2 )
-    return 3221225485LL;
-  v98 = v110 >> 3;
-  v99 = v111;
-  v100 = v153;
-  memmove(v151, a2, (unsigned int)a3);
-  KeModifySystemAllowedCpuSets((unsigned int)a3 >> 3, (_DWORD)v151, 0, 0);
-  v101 = a3 - 8;
-  v102 = a2->m128i_i64[0];
-  memmove(v152, &a2->m128i_u64[1], v101);
-  KeSetTagCpuSets(v101 >> 3, v152, v102);
-  return (unsigned int)KeModifySystemAllowedCpuSets(v98, (_DWORD)v100, 0, v99);
 }
 """
 
@@ -202,19 +127,6 @@ __int64 __fastcall PointerBoundRenameSample(void *a1, unsigned __int16 a2)
   if ( (unsigned __int64)v93 > 0x7FFFFFFF0000LL || v93 < Src[1] )
     return 0;
   return a2;
-}
-"""
-
-
-PREVIOUS_MODE_COPY_SAMPLE = r"""
-__int64 __fastcall PreviousModeCopySample()
-{
-  KPROCESSOR_MODE PreviousMode;
-  KPROCESSOR_MODE v119;
-
-  PreviousMode = KeGetCurrentThread()->PreviousMode;
-  v119 = PreviousMode;
-  return v119;
 }
 """
 
@@ -287,78 +199,6 @@ class CoreEngineTests(unittest.TestCase):
         self.assertIn("return HvlQuerySetBootPagesInfo(systemInformation, 0LL);", rendered)
         self.assertIn("case 243:", rendered)
 
-    def test_identifier_renames_do_not_touch_struct_members(self):
-        class FakeProvider:
-            def suggest_renames(self, capture):
-                return json.dumps(
-                    {
-                        "renames": [
-                            {
-                                "old": "Process",
-                                "new": "targetProcess",
-                                "confidence": 0.95,
-                                "reason": "local holds current process",
-                            }
-                        ]
-                    }
-                )
-
-        capture = capture_from_pseudocode(MEMBER_RENAME_SAMPLE)
-        plan = build_clean_plan(capture, rename_provider=FakeProvider())
-        rendered = render_cleaned_pseudocode(capture, plan)
-
-        self.assertIn("previousMode = KeGetCurrentThread()->PreviousMode;", rendered)
-        self.assertIn("currentProcess = KeGetCurrentThread()->ApcState.Process;", rendered)
-        self.assertIn("activeProcessorCount = KeQueryActiveProcessorCountEx(0xFFFFu);", rendered)
-        self.assertNotIn("KeGetCurrentThread()->previousMode", rendered)
-        self.assertNotIn("ApcState.targetProcess", rendered)
-        self.assertNotIn("ULONG ActiveProcessorCount;", rendered)
-
-    def test_pool_allocation_result_gets_stable_pattern_name(self):
-        capture = capture_from_pseudocode(POOL_ALLOCATION_SAMPLE)
-        plan = build_clean_plan(capture)
-        rename_map = {item.old: item.new for item in plan.renames if item.apply}
-        rendered = render_cleaned_pseudocode(capture, plan)
-
-        self.assertEqual(rename_map["Pool2"], "allocatedBuffer")
-        self.assertIn("void *allocatedBuffer;", rendered)
-        self.assertIn("allocatedBuffer = (void *)ExAllocatePool2(", rendered)
-        self.assertNotIn("void *Pool2;", rendered)
-        self.assertNotIn("Pool2 = (void *)", rendered)
-
-    def test_text_lvars_survive_cfunc_lvar_merge(self):
-        sample = r"""
-__int64 __fastcall TextLvarMergeSample()
-{
-  ULONG ActiveProcessorCount;
-  void *Pool2;
-
-  ActiveProcessorCount = KeQueryActiveProcessorCountEx(0xFFFFu);
-  Pool2 = (void *)ExAllocatePool2(0x101uLL, 64, 0x50535845u);
-  if ( Pool2 )
-  {
-    return ActiveProcessorCount;
-  }
-  return 0;
-}
-"""
-        capture = capture_from_pseudocode(sample)
-        capture.lvars = merge_lvars_from_text_and_cfunc(
-            capture.lvars,
-            [
-                LocalVariable(name="v13", type="__int64 *", index=0),
-                LocalVariable(name="v14", type="__int64", index=1),
-            ],
-        )
-        plan = build_clean_plan(capture)
-        rename_map = {item.old: item.new for item in plan.renames if item.apply}
-        rendered = render_cleaned_pseudocode(capture, plan)
-
-        self.assertEqual(rename_map["ActiveProcessorCount"], "activeProcessorCount")
-        self.assertEqual(rename_map["Pool2"], "allocatedBuffer")
-        self.assertIn("activeProcessorCount = KeQueryActiveProcessorCountEx(0xFFFFu);", rendered)
-        self.assertIn("allocatedBuffer = (void *)ExAllocatePool2(", rendered)
-
     def test_shadowed_duplicate_target_warnings_are_removed(self):
         sample = r"""
 __int64 __fastcall DuplicateInputLengthSample(int a1, void *a2, ULONG a3)
@@ -408,47 +248,6 @@ __int64 __fastcall DuplicateInputLengthSample(int a1, void *a2, ULONG a3)
         self.assertNotIn("int booleanTrue", rendered)
         self.assertNotIn("__int64 one", rendered)
         self.assertNotIn("LOBYTE(one)", rendered)
-
-    def test_cpu_set_mask_stack_buffer_pattern_beats_vague_llm_name(self):
-        class FakeProvider:
-            def suggest_renames(self, capture):
-                return json.dumps(
-                    {
-                        "renames": [
-                            {
-                                "old": "v153",
-                                "new": "localInputCopy",
-                                "confidence": 0.95,
-                                "reason": "local stack copy",
-                            }
-                        ]
-                    }
-                )
-
-        capture = capture_from_pseudocode(CPU_SET_MASK_SAMPLE)
-        plan = build_clean_plan(capture, rename_provider=FakeProvider())
-        rename_map = {item.old: item.new for item in plan.renames if item.apply}
-        rendered = render_cleaned_pseudocode(capture, plan)
-
-        self.assertEqual(rename_map["v153"], "cpuSetMaskStackBuffer")
-        self.assertEqual(rename_map["v151"], "cpuSetAllowedMaskStackBuffer")
-        self.assertEqual(rename_map["v152"], "cpuSetTagMaskStackBuffer")
-        self.assertEqual(rename_map["v101"], "cpuSetTagMaskBytes")
-        self.assertEqual(rename_map["v111"], "cpuSetOperation")
-        self.assertEqual(rename_map["v99"], "cpuSetOperation32")
-        self.assertIn("_BYTE cpuSetMaskStackBuffer[256];", rendered)
-        self.assertIn("_BYTE cpuSetAllowedMaskStackBuffer[256];", rendered)
-        self.assertIn("_BYTE cpuSetTagMaskStackBuffer[256];", rendered)
-        self.assertIn("memmove(cpuSetMaskStackBuffer, &systemInfo128->m128i_u64[1], cpuSetMaskBytes);", rendered)
-        self.assertIn(
-            "memmove(cpuSetAllowedMaskStackBuffer, systemInformation, (unsigned int)systemInformationLength);",
-            rendered,
-        )
-        self.assertIn("memmove(cpuSetTagMaskStackBuffer, &systemInfo128->m128i_u64[1], cpuSetTagMaskBytes);", rendered)
-        self.assertIn("if ( cpuSetOperation >= 2 )", rendered)
-        self.assertIn("cpuSetOperation32 = cpuSetOperation;", rendered)
-        self.assertIn("cpuSetMaskBuffer = cpuSetMaskStackBuffer;", rendered)
-        self.assertNotIn("localInputCopy", rendered)
 
     def test_weak_llm_context_names_are_rejected_in_large_dispatchers(self):
         class FakeProvider:
@@ -896,31 +695,6 @@ LABEL_34:
         self.assertEqual(roles["LABEL_34"], "failfast_corrupt_list_entry")
         self.assertIn("LABEL_36: success_accounting_return_tail", rendered)
         self.assertNotIn("LABEL_36: cleanup_dispatch_tail", rendered)
-
-    def test_previous_mode_copy_pattern_beats_captured_llm_name(self):
-        class FakeProvider:
-            def suggest_renames(self, capture):
-                return json.dumps(
-                    {
-                        "renames": [
-                            {
-                                "old": "v119",
-                                "new": "capturedPreviousMode",
-                                "confidence": 0.95,
-                                "reason": "copy of previous mode",
-                            }
-                        ]
-                    }
-                )
-
-        capture = capture_from_pseudocode(PREVIOUS_MODE_COPY_SAMPLE)
-        plan = build_clean_plan(capture, rename_provider=FakeProvider())
-        rename_map = {item.old: item.new for item in plan.renames if item.apply}
-        rendered = render_cleaned_pseudocode(capture, plan)
-
-        self.assertEqual(rename_map["v119"], "savedPreviousMode")
-        self.assertIn("savedPreviousMode = previousMode;", rendered)
-        self.assertNotIn("capturedPreviousMode", rendered)
 
     def test_numeric_dispatcher_llm_rename_is_rejected(self):
         class FakeProvider:

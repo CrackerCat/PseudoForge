@@ -196,6 +196,7 @@ Implemented in this folder:
    - `tests/test_render_literals.py`
    - `tests/test_render_memory.py`
    - `tests/test_render_ntset.py`
+   - `tests/test_rename_heuristics.py`
    - `tests/test_render_snapshots.py`
    - `tests/test_render_signatures.py`
    - `tests/test_render_style.py`
@@ -257,7 +258,7 @@ P1 renderer snapshot protection update:
   lives in `ida_pseudoforge/core/render_zw.py`.
 - Zw API probe, reused Zw status-slot, and `MmGetSystemRoutineAddress`
   indirect-call regressions now live in `tests/test_render_zw.py`; the core
-  monolith is 953 lines after the style split.
+  monolith is 727 lines after the rename-heuristic split.
 - TraceLogging template switch false-positive regression now lives in
   `tests/test_render_flow.py`.
 - Known `PVOID` native signature/body-alias regression now lives in
@@ -271,6 +272,8 @@ P1 renderer snapshot protection update:
   `tests/test_render_kernel_hints.py`.
 - Multiline-condition brace and single-line if-body style regressions now live
   in `tests/test_render_style.py`.
+- Deterministic rename heuristic and cfunc/text lvar merge regressions now live
+  in `tests/test_rename_heuristics.py`.
 - `NtSetSystemInformation` m128/body rendering for typed `systemInformation`
   access, mutable alias splitting, and `userProbeEnd` recovery now lives in
   `ida_pseudoforge/core/render_ntset.py`.
@@ -751,7 +754,7 @@ python -B .\tools\pseudoforge_free_cli.py .\samples\pseudocode\NtSetSystemInform
 NtSet renderer extraction validation:
 
 ```text
-python -B -m unittest tests.test_render_ntset tests.test_render_snapshots tests.test_render_signatures.RenderSignatureTests.test_known_pvoid_signature_keeps_typed_body_alias tests.test_core_engine.CoreEngineTests.test_cpu_set_mask_stack_buffer_pattern_beats_vague_llm_name -v: 8 tests OK
+python -B -m unittest tests.test_render_ntset tests.test_render_snapshots tests.test_render_signatures.RenderSignatureTests.test_known_pvoid_signature_keeps_typed_body_alias tests.test_rename_heuristics.RenameHeuristicTests.test_cpu_set_mask_stack_buffer_pattern_beats_vague_llm_name -v: 8 tests OK
 python -B -m unittest discover -s tests -v: 265 tests OK
 python -B -m compileall .\pseudoforge.py .\ida_pseudoforge .\tests .\tools: passed
 git diff --check -- .: passed
@@ -781,6 +784,15 @@ Style test-suite split validation:
 
 ```text
 python -B -m unittest tests.test_render_style tests.test_render_snapshots tests.test_core_engine -v: 28 tests OK
+python -B -m unittest discover -s tests -v: 265 tests OK
+python -B -m compileall .\pseudoforge.py .\ida_pseudoforge .\tests .\tools: passed
+git diff --check -- .: passed
+```
+
+Rename heuristic test-suite split validation:
+
+```text
+python -B -m unittest tests.test_rename_heuristics tests.test_core_engine -v: 21 tests OK
 python -B -m unittest discover -s tests -v: 265 tests OK
 python -B -m compileall .\pseudoforge.py .\ida_pseudoforge .\tests .\tools: passed
 git diff --check -- .: passed

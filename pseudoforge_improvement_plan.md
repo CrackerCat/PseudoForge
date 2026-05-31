@@ -737,6 +737,8 @@ Completed:
   `tests/test_render_kernel_hints.py`.
 - [x] Moved multiline-condition brace and single-line if-body style
   regressions into `tests/test_render_style.py`.
+- [x] Moved deterministic rename heuristic and cfunc/text lvar merge
+  regressions into `tests/test_rename_heuristics.py`.
 
 Remaining:
 
@@ -747,11 +749,11 @@ Remaining:
 
 ### Current Evidence
 
-- `tests/test_core_engine.py` is 953 lines after the focused forge-store,
+- `tests/test_core_engine.py` is 727 lines after the focused forge-store,
   UI preview, RuleContext, rule-pack validator, RuleEngine, rule integration,
   IDA batch, LLM config, logging, release/version, kernel profile, DriverEntry,
   Memory Manager, IOCTL/IRP, callback, Zw/API, TraceLogging/flow, and signature
-  and NtSet/label/kernel-hint/style splits.
+  and NtSet/label/kernel-hint/style/rename-heuristic splits.
 - Status literal rendering coverage now has a focused
   `tests/test_render_status.py` suite.
 - Dispatcher/profile literal coverage now has a focused
@@ -802,6 +804,8 @@ Remaining:
   `tests/test_render_kernel_hints.py`.
 - Multiline-condition brace and single-line if-body style coverage now lives in
   `tests/test_render_style.py`.
+- Deterministic rename heuristic and cfunc/text lvar merge coverage now lives in
+  `tests/test_rename_heuristics.py`.
 - The status document already lists the historical monolith as deferred debt.
 - Test coverage is broad but organized mostly by accumulation rather than by
   subsystem.
@@ -825,6 +829,7 @@ conflict risk and makes it harder to identify which subsystem owns a regression.
    - `test_validation.py`
    - `test_deterministic_rules.py`
    - `test_forge_store.py`
+   - `test_rename_heuristics.py`
 2. Move shared fixtures into `tests/fixtures/` or `tests/helpers.py`.
 3. Add snapshot fixtures for rendered output.
 4. Keep `python -B -m unittest discover -s tests -v` as the canonical local
