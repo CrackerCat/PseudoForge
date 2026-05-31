@@ -713,6 +713,9 @@ Completed:
 - [x] Moved callback signature, OB pre-operation, callback registration, packed
   operation registration, and registry callback regressions into
   `tests/test_render_callbacks.py`.
+- [x] Moved Zw API probe, reused Zw status-slot, and
+  `MmGetSystemRoutineAddress` indirect-call regressions into
+  `tests/test_render_zw.py`.
 
 Remaining:
 
@@ -723,9 +726,10 @@ Remaining:
 
 ### Current Evidence
 
-- `tests/test_core_engine.py` is 2134 lines after the focused forge-store,
+- `tests/test_core_engine.py` is 1744 lines after the focused forge-store,
   UI preview, RuleContext, rule-pack validator, RuleEngine, rule integration,
-  IDA batch, LLM config, kernel profile, IOCTL/IRP, and callback splits.
+  IDA batch, LLM config, kernel profile, IOCTL/IRP, callback, and Zw/API
+  splits.
 - Status literal rendering coverage now has a focused
   `tests/test_render_status.py` suite.
 - Dispatcher/profile literal coverage now has a focused
@@ -756,6 +760,8 @@ Remaining:
 - Callback signature, OB pre-operation, callback registration, packed operation
   registration, and registry callback coverage now lives in
   `tests/test_render_callbacks.py`.
+- Zw API probe, reused Zw status-slot, and `MmGetSystemRoutineAddress`
+  indirect-call coverage now lives in `tests/test_render_zw.py`.
 - The status document already lists the historical monolith as deferred debt.
 - Test coverage is broad but organized mostly by accumulation rather than by
   subsystem.

@@ -253,6 +253,9 @@ P1 renderer snapshot protection update:
 - Zw API probe rendering for `OBJECT_ATTRIBUTES` length/flag cleanup,
   `NtCurrentProcess()` / `NtCurrentThread()`, and Zw status success checks now
   lives in `ida_pseudoforge/core/render_zw.py`.
+- Zw API probe, reused Zw status-slot, and `MmGetSystemRoutineAddress`
+  indirect-call regressions now live in `tests/test_render_zw.py`; the core
+  monolith is 1744 lines after the current split.
 - `NtSetSystemInformation` m128/body rendering for typed `systemInformation`
   access, mutable alias splitting, and `userProbeEnd` recovery now lives in
   `ida_pseudoforge/core/render_ntset.py`.
@@ -717,8 +720,8 @@ python -B .\tools\pseudoforge_free_cli.py .\samples\pseudocode\NtSetSystemInform
 Zw API renderer extraction validation:
 
 ```text
-python -B -m unittest tests.test_render_zw tests.test_render_snapshots tests.test_core_engine.CoreEngineTests.test_zw_api_probe_gets_deterministic_names_and_status_checks tests.test_core_engine.CoreEngineTests.test_zw_reused_status_slot_is_not_given_routine_specific_name -v: 6 tests OK
-python -B -m unittest discover -s tests -v: 234 tests OK
+python -B -m unittest tests.test_render_zw tests.test_render_snapshots -v: 9 tests OK
+python -B -m unittest discover -s tests -v: 265 tests OK
 python -B -m compileall .\pseudoforge.py .\ida_pseudoforge .\tests .\tools: passed
 git diff --check -- .: passed
 python -B .\tools\pseudoforge_cli.py .\samples\pseudocode\NtSetSystemInformation_switch_renamed.cpp --out $env:TEMP\pseudoforge_cli_zw_extract_smoke: succeeded
@@ -831,10 +834,19 @@ python -B -m compileall .\pseudoforge.py .\ida_pseudoforge .\tests .\tools: pass
 git diff --check -- .: passed
 ```
 
+Zw/API test-suite split validation:
+
+```text
+python -B -m unittest tests.test_render_zw tests.test_core_engine -v: 43 tests OK
+python -B -m unittest discover -s tests -v: 265 tests OK
+python -B -m compileall .\pseudoforge.py .\ida_pseudoforge .\tests .\tools: passed
+git diff --check -- .: passed
+```
+
 DriverEntry cleanup regression validation:
 
 ```text
-python -B -m unittest tests.test_render_callbacks.RenderCallbacksTests.test_callback_registration_toggle_rewrites_ob_operation_registration tests.test_render_callbacks.RenderCallbacksTests.test_registry_callback_registration_probe_gets_cm_semantics tests.test_core_engine.CoreEngineTests.test_memory_manager_probe_gets_mm_semantics tests.test_core_engine.CoreEngineTests.test_zw_api_probe_gets_deterministic_names_and_status_checks tests.test_core_engine.CoreEngineTests.test_driver_entry_device_extension_semantics tests.test_render_ioctl.RenderIoctlTests.test_ioctl_switch_case_labels_decode_ctl_code_bitfields tests.test_kernel_api_profile_builder.KernelApiProfileBuilderTests.test_kernel_api_profile_rewrites_pool_flags_and_tags -v: 7 tests OK
+python -B -m unittest tests.test_render_callbacks.RenderCallbacksTests.test_callback_registration_toggle_rewrites_ob_operation_registration tests.test_render_callbacks.RenderCallbacksTests.test_registry_callback_registration_probe_gets_cm_semantics tests.test_core_engine.CoreEngineTests.test_memory_manager_probe_gets_mm_semantics tests.test_render_zw.RenderZwTests.test_zw_api_probe_gets_deterministic_names_and_status_checks tests.test_core_engine.CoreEngineTests.test_driver_entry_device_extension_semantics tests.test_render_ioctl.RenderIoctlTests.test_ioctl_switch_case_labels_decode_ctl_code_bitfields tests.test_kernel_api_profile_builder.KernelApiProfileBuilderTests.test_kernel_api_profile_rewrites_pool_flags_and_tags -v: 7 tests OK
 python -B -m unittest tests.test_core_engine.CoreEngineTests.test_driver_entry_device_extension_semantics tests.test_core_engine.CoreEngineTests.test_driver_entry_extension_rewrite_requires_dword_scaled_offsets -v: 2 tests OK
 python -B -m unittest tests.test_render_ioctl.RenderIoctlTests.test_ioctl_switch_case_labels_decode_ctl_code_bitfields tests.test_render_ioctl.RenderIoctlTests.test_ioctl_stack_location_rewrite_does_not_require_device_extension_use tests.test_render_ioctl.RenderIoctlTests.test_irp_stack_location_union_arm_is_not_forced_without_ioctl_evidence tests.test_render_ioctl.RenderIoctlTests.test_irp_stack_location_roles_require_driver_dispatch_evidence tests.test_render_ioctl.RenderIoctlTests.test_llm_ioctl_like_names_do_not_force_irp_union_arm_without_dispatch_evidence tests.test_render_ioctl.RenderIoctlTests.test_master_irp_alias_rewrite_requires_all_buffered_ioctl_cases tests.test_render_ioctl.RenderIoctlTests.test_master_irp_alias_rewrite_requires_device_control_stack_evidence tests.test_render_ioctl.RenderIoctlTests.test_ioctl_ctl_code_decode_handles_methods_and_access_bits tests.test_render_ioctl.RenderIoctlTests.test_ioctl_case_labels_decode_hexrays_integer_suffixes -v: 9 tests OK
 python -B -m unittest discover -s tests -v: 171 tests OK
