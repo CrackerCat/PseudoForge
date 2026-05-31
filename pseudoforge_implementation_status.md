@@ -257,7 +257,9 @@ P1 renderer snapshot protection update:
   lives in `ida_pseudoforge/core/render_zw.py`.
 - Zw API probe, reused Zw status-slot, and `MmGetSystemRoutineAddress`
   indirect-call regressions now live in `tests/test_render_zw.py`; the core
-  monolith is 1744 lines after the current split.
+  monolith is 1492 lines after the TraceLogging/flow split.
+- TraceLogging template switch false-positive regression now lives in
+  `tests/test_render_flow.py`.
 - `NtSetSystemInformation` m128/body rendering for typed `systemInformation`
   access, mutable alias splitting, and `userProbeEnd` recovery now lives in
   `ida_pseudoforge/core/render_ntset.py`.
@@ -454,6 +456,7 @@ The current implementation state reflects the `NtSetSystemInformation` and `NtSe
 - Casted native switches such as `switch ((int)a2)` are recognized as native dispatchers, so length/alignment comparisons on `ProcessInformationLength` are not promoted into auxiliary switch recovery.
 - Switch outline generation is intentionally conservative: only single-statement return bodies are expanded, while complex or shared branch bodies point back to the normalized original pseudocode.
 - TraceLogging/C++ template wrapper functions are excluded from switch recovery to avoid mapping wrapper size constants onto unrelated `SYSTEM_INFORMATION_CLASS` names.
+- The matching TraceLogging switch false-positive regression now lives in `tests/test_render_flow.py`.
 - Direct `return 0` becomes `STATUS_SUCCESS` only when the function has strong NTSTATUS return evidence; mixed error-code helpers with decompiler `__int64`/`char` return types keep raw zero returns.
 - LLM-only `status` renames no longer enable zero-to-`STATUS_SUCCESS` assignment rewriting; that rewrite requires strong NTSTATUS context or a deterministic kernel-status accumulator.
 - `status_codes.json` is generated from WDK `shared\ntstatus.h`; the default generator policy keeps `STATUS_SUCCESS`, `STATUS_PENDING`, and severity-bit informational/warning/error codes, while excluding low wait/success aliases such as `STATUS_WAIT_1` to avoid rewriting ordinary boolean-like status locals.
@@ -759,12 +762,21 @@ python -B .\tools\pseudoforge_free_cli.py .\samples\pseudocode\NtSetSystemInform
 Flow renderer extraction validation:
 
 ```text
-python -B -m unittest tests.test_render_flow tests.test_core_engine.CoreEngineTests.test_render_switch_outline tests.test_core_engine.CoreEngineTests.test_switch_outline_reports_case_body_states_and_anchors tests.test_core_engine.CoreEngineTests.test_native_switch_outline_is_suppressed tests.test_core_engine.CoreEngineTests.test_switch_outline_omits_goto_dependent_body tests.test_export_bundle -v: 10 tests OK
-python -B -m unittest discover -s tests -v: 243 tests OK
+python -B -m unittest tests.test_render_flow tests.test_export_bundle -v: 11 tests OK
+python -B -m unittest discover -s tests -v: 265 tests OK
 python -B -m compileall .\pseudoforge.py .\ida_pseudoforge .\tests .\tools: passed
 git diff --check -- .: passed
 python -B .\tools\pseudoforge_cli.py .\samples\pseudocode\NtSetSystemInformation_switch_renamed.cpp --out $env:TEMP\pseudoforge_cli_flow_extract_smoke: succeeded
 python -B .\tools\pseudoforge_free_cli.py .\samples\pseudocode\NtSetSystemInformation_switch_renamed.cpp --out $env:TEMP\pseudoforge_free_cli_flow_extract_smoke --format json --no-progress: succeeded
+```
+
+TraceLogging flow test-suite split validation:
+
+```text
+python -B -m unittest tests.test_render_flow tests.test_core_engine -v: 37 tests OK
+python -B -m unittest discover -s tests -v: 265 tests OK
+python -B -m compileall .\pseudoforge.py .\ida_pseudoforge .\tests .\tools: passed
+git diff --check -- .: passed
 ```
 
 Path literal renderer extraction validation:

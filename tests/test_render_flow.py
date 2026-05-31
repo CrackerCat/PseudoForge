@@ -52,7 +52,35 @@ __int64 __fastcall NativeSwitchSample(int a1)
 """
 
 
+TRACELOGGING_TEMPLATE_SAMPLE = r"""
+__int64 __fastcall _tlgWriteTemplate_Write(__int64 a1)
+{
+  int _tlgWrapperByVal;
+
+  _tlgWrapperByVal = *(_DWORD *)a1;
+  if ( _tlgWrapperByVal == 1 )
+    return write_bool();
+  if ( _tlgWrapperByVal == 4 )
+    return write_int32();
+  if ( _tlgWrapperByVal == 8 )
+    return write_int64();
+  return write_default();
+}
+"""
+
+
 class RenderFlowTests(unittest.TestCase):
+    def test_tracelogging_template_is_not_recovered_as_system_information_switch(self) -> None:
+        capture = capture_from_pseudocode(TRACELOGGING_TEMPLATE_SAMPLE, name="_tlgWriteTemplate_Write")
+        plan = build_clean_plan(capture)
+        rendered = render_cleaned_pseudocode(capture, plan)
+
+        self.assertFalse(plan.flow_rewrites)
+        self.assertNotIn("PseudoForge recovered switch view", rendered)
+        self.assertNotIn("SystemBasicInformation", rendered)
+        self.assertNotIn("SystemBasicPerformanceInformation", rendered)
+        self.assertNotIn("SystemProcessorPerformanceInformation", rendered)
+
     def test_render_flow_report_includes_case_metadata_and_warnings(self) -> None:
         flow = FlowRewrite(
             kind="switch",

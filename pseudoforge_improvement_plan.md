@@ -724,6 +724,8 @@ Completed:
 - [x] Moved Zw API probe, reused Zw status-slot, and
   `MmGetSystemRoutineAddress` indirect-call regressions into
   `tests/test_render_zw.py`.
+- [x] Moved TraceLogging template switch false-positive regression into
+  `tests/test_render_flow.py`.
 
 Remaining:
 
@@ -734,10 +736,10 @@ Remaining:
 
 ### Current Evidence
 
-- `tests/test_core_engine.py` is 1387 lines after the focused forge-store,
+- `tests/test_core_engine.py` is 1492 lines after the focused forge-store,
   UI preview, RuleContext, rule-pack validator, RuleEngine, rule integration,
   IDA batch, LLM config, logging, release/version, kernel profile, DriverEntry,
-  Memory Manager, IOCTL/IRP, callback, and Zw/API splits.
+  Memory Manager, IOCTL/IRP, callback, Zw/API, and TraceLogging/flow splits.
 - Status literal rendering coverage now has a focused
   `tests/test_render_status.py` suite.
 - Dispatcher/profile literal coverage now has a focused
@@ -776,6 +778,8 @@ Remaining:
   `tests/test_render_callbacks.py`.
 - Zw API probe, reused Zw status-slot, and `MmGetSystemRoutineAddress`
   indirect-call coverage now lives in `tests/test_render_zw.py`.
+- TraceLogging switch false-positive coverage now lives in
+  `tests/test_render_flow.py`.
 - The status document already lists the historical monolith as deferred debt.
 - Test coverage is broad but organized mostly by accumulation rather than by
   subsystem.
