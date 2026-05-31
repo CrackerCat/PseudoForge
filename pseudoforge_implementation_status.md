@@ -176,6 +176,7 @@ Implemented in this folder:
    - `tests/test_render_driver_entry.py`
    - `tests/test_render_ioctl.py`
    - `tests/test_render_labels.py`
+   - `tests/test_render_ntset.py`
    - `tests/test_render_snapshots.py`
    - `tests/test_render_style.py`
    - `tests/test_render_zw.py`
@@ -184,7 +185,7 @@ Implemented in this folder:
    - `tests/test_pseudoforge_free_cli.py`
    - `tests/test_release_pseudoforge.py`
    - renderer golden snapshots under `tests/snapshots`
-   - current suite covers 234 unit tests
+   - current suite covers 237 unit tests
 
 ## Latest Implementation Notes
 
@@ -225,6 +226,9 @@ P1 renderer snapshot protection update:
 - Zw API probe rendering for `OBJECT_ATTRIBUTES` length/flag cleanup,
   `NtCurrentProcess()` / `NtCurrentThread()`, and Zw status success checks now
   lives in `ida_pseudoforge/core/render_zw.py`.
+- `NtSetSystemInformation` m128/body rendering for typed `systemInformation`
+  access, mutable alias splitting, and `userProbeEnd` recovery now lives in
+  `ida_pseudoforge/core/render_ntset.py`.
 
 P1 profile loader diagnostics update:
 
@@ -613,6 +617,17 @@ python -B -m compileall .\pseudoforge.py .\ida_pseudoforge .\tests .\tools: pass
 git diff --check -- .: passed
 python -B .\tools\pseudoforge_cli.py .\samples\pseudocode\NtSetSystemInformation_switch_renamed.cpp --out $env:TEMP\pseudoforge_cli_zw_extract_smoke: succeeded
 python -B .\tools\pseudoforge_free_cli.py .\samples\pseudocode\NtSetSystemInformation_switch_renamed.cpp --out $env:TEMP\pseudoforge_free_cli_zw_extract_smoke --format json --no-progress: succeeded
+```
+
+NtSet renderer extraction validation:
+
+```text
+python -B -m unittest tests.test_render_ntset tests.test_render_snapshots tests.test_core_engine.CoreEngineTests.test_known_pvoid_signature_keeps_typed_body_alias tests.test_core_engine.CoreEngineTests.test_reused_m128_alias_splits_original_view_from_mutable_alias tests.test_core_engine.CoreEngineTests.test_prenormalized_reused_m128_alias_is_neutralized tests.test_core_engine.CoreEngineTests.test_cpu_set_mask_stack_buffer_pattern_beats_vague_llm_name -v: 8 tests OK
+python -B -m unittest discover -s tests -v: 237 tests OK
+python -B -m compileall .\pseudoforge.py .\ida_pseudoforge .\tests .\tools: passed
+git diff --check -- .: passed
+python -B .\tools\pseudoforge_cli.py .\samples\pseudocode\NtSetSystemInformation_switch_renamed.cpp --out $env:TEMP\pseudoforge_cli_ntset_extract_smoke: succeeded
+python -B .\tools\pseudoforge_free_cli.py .\samples\pseudocode\NtSetSystemInformation_switch_renamed.cpp --out $env:TEMP\pseudoforge_free_cli_ntset_extract_smoke --format json --no-progress: succeeded
 ```
 
 DriverEntry cleanup regression validation:
