@@ -935,6 +935,8 @@ Completed:
 - [x] Tightened the side-by-side top controls into fixed-height status,
   summary, and search rows so the code splitter receives the available vertical
   space.
+- [x] Added side-by-side search occurrence highlighting with a stronger current
+  match highlight for `Prev`/`Next` navigation.
 - [x] Added a neutral base foreground to Qt side-by-side syntax highlighting and
   made block-comment highlighting line-local to avoid comment-green bleed into
   pseudocode.
@@ -966,6 +968,8 @@ Completed:
 - The side-by-side panel includes fixed-height search controls that jump both
   panes to the selected match line and a compact warning/rule summary row
   populated from the same diagnostics used by the analysis completion popup.
+- Search highlights every matched occurrence in both panes and uses a distinct
+  active-match highlight for the currently selected result.
 - The side-by-side highlighter applies a neutral plain-text base before token
   colors, so unhighlighted pseudocode stays readable under IDA dark themes.
 - Cached current-function preview can open side-by-side when the active analysis

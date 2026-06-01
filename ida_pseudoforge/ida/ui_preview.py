@@ -40,6 +40,11 @@ _MAX_HIGHLIGHT_LINES = 8000
 _SIDE_BY_SIDE_STATUS_MAX_HEIGHT = 18
 _SIDE_BY_SIDE_SUMMARY_MAX_HEIGHT = 44
 _SIDE_BY_SIDE_SEARCH_MAX_HEIGHT = 28
+_SIDE_BY_SIDE_MAX_SEARCH_HIGHLIGHTS = 1000
+_SIDE_BY_SIDE_SEARCH_BG = (86, 74, 28)
+_SIDE_BY_SIDE_SEARCH_FG = (255, 255, 255)
+_SIDE_BY_SIDE_SEARCH_CURRENT_BG = (255, 213, 79)
+_SIDE_BY_SIDE_SEARCH_CURRENT_FG = (0, 0, 0)
 _DISABLE_HIGHLIGHT_ENV = "PSEUDOFORGE_DISABLE_PREVIEW_HIGHLIGHT"
 _PREVIEW_BACKEND_ENV = "PSEUDOFORGE_PREVIEW_BACKEND"
 _ACTIONS_REGISTERED = False
@@ -383,6 +388,17 @@ def _text_cursor_move_operation(qt_gui, name: str):
     return getattr(move_operation_cls, name)
 
 
+def _text_cursor_move_mode(qt_gui, name: str):
+    cursor_cls = qt_gui.QTextCursor
+    value = getattr(cursor_cls, name, None)
+    if value is not None:
+        return value
+    move_mode_cls = getattr(cursor_cls, "MoveMode", None)
+    if move_mode_cls is None:
+        raise AttributeError("QTextCursor move mode is unavailable: %s" % name)
+    return getattr(move_mode_cls, name)
+
+
 def _fixed_width_system_font(qt_gui):
     font_database_cls = qt_gui.QFontDatabase
     fixed_font = getattr(font_database_cls, "FixedFont", None)
@@ -430,7 +446,7 @@ def _side_by_side_form_class(plugin_form_cls, qt_modules):
             self.target_stem = target_stem
             self.summary_text = summary_text
             self._widget = None
-            self._search_matches: list[tuple[int, int]] = []
+            self._search_matches: list[tuple[int, int, int, int]] = []
             self._search_index = 0
             self._editors: list[object] = []
             self._highlighters: list[object] = []
@@ -524,7 +540,7 @@ def _side_by_side_form_class(plugin_form_cls, qt_modules):
 
         def _update_search(self) -> None:
             query = self._search_box.text() if self._search_box is not None else ""
-            self._search_matches = _search_line_matches([self.reference_text, self.content_text], query)
+            self._search_matches = _search_text_matches([self.reference_text, self.content_text], query)
             self._search_index = 0
             self._update_search_status(query)
             self._show_search_match()
@@ -548,6 +564,7 @@ def _side_by_side_form_class(plugin_form_cls, qt_modules):
             self._search_status.setText("%d/%d matches" % (self._search_index + 1, len(self._search_matches)))
 
         def _show_search_match(self) -> None:
+            _apply_search_highlights(self._editors, self._search_matches, self._search_index, QtGui, QtWidgets)
             _scroll_editors_to_search_match(self._editors, self._search_matches, self._search_index, QtGui)
 
     return _SideBySidePreviewForm
@@ -694,10 +711,136 @@ def _search_line_matches(panel_texts: list[str], query: str) -> list[tuple[int, 
     return result
 
 
-def _scroll_editors_to_search_match(editors, search_matches: list[tuple[int, int]], search_index: int, qt_gui) -> None:
+def _search_text_matches(panel_texts: list[str], query: str) -> list[tuple[int, int, int, int]]:
+    needle = (query or "").strip()
+    if not needle:
+        return []
+    needle_lower = needle.lower()
+    result: list[tuple[int, int, int, int]] = []
+    for panel_index, text in enumerate(panel_texts):
+        offset = 0
+        for line_index, line in enumerate((text or "").splitlines(keepends=True)):
+            line_body = line.rstrip("\r\n")
+            line_lower = line_body.lower()
+            column = 0
+            while True:
+                found = line_lower.find(needle_lower, column)
+                if found < 0:
+                    break
+                result.append((panel_index, line_index, offset + found, len(needle)))
+                column = found + max(1, len(needle))
+            offset += len(line)
+    return result
+
+
+def _apply_search_highlights(editors, search_matches, search_index: int, qt_gui, qt_widgets) -> None:
+    if not editors:
+        return
+    if not search_matches:
+        for editor in editors:
+            _set_editor_extra_selections(editor, [])
+        return
+
+    current_index = search_index % len(search_matches)
+    current_match = search_matches[current_index]
+    normal_format = _search_highlight_format(
+        qt_gui,
+        _SIDE_BY_SIDE_SEARCH_BG,
+        _SIDE_BY_SIDE_SEARCH_FG,
+    )
+    current_format = _search_highlight_format(
+        qt_gui,
+        _SIDE_BY_SIDE_SEARCH_CURRENT_BG,
+        _SIDE_BY_SIDE_SEARCH_CURRENT_FG,
+    )
+    for panel_index, editor in enumerate(editors):
+        selections = []
+        highlighted = 0
+        current_selection = None
+        for match_index, match in enumerate(search_matches):
+            if highlighted >= _SIDE_BY_SIDE_MAX_SEARCH_HIGHLIGHTS and match_index != current_index:
+                continue
+            match_panel, _line_index, position, length = match
+            if match_panel != panel_index:
+                continue
+            text_format = current_format if match_index == current_index else normal_format
+            selection = _make_search_extra_selection(editor, position, length, text_format, qt_gui, qt_widgets)
+            if selection is None:
+                continue
+            if match_index == current_index:
+                current_selection = selection
+            else:
+                selections.append(selection)
+                highlighted += 1
+        if current_selection is not None:
+            selections.append(current_selection)
+        elif current_match[0] == panel_index:
+            selection = _make_search_extra_selection(
+                editor,
+                current_match[2],
+                current_match[3],
+                current_format,
+                qt_gui,
+                qt_widgets,
+            )
+            if selection is not None:
+                selections.append(selection)
+        _set_editor_extra_selections(editor, selections)
+
+
+def _search_highlight_format(qt_gui, background_rgb: tuple[int, int, int], foreground_rgb: tuple[int, int, int]):
+    text_format = qt_gui.QTextCharFormat()
+    set_background = getattr(text_format, "setBackground", None)
+    if set_background is not None:
+        set_background(qt_gui.QColor(*background_rgb))
+    set_foreground = getattr(text_format, "setForeground", None)
+    if set_foreground is not None:
+        set_foreground(qt_gui.QColor(*foreground_rgb))
+    return text_format
+
+
+def _make_search_extra_selection(editor, position: int, length: int, text_format, qt_gui, qt_widgets):
+    selection_cls = _extra_selection_class(qt_widgets)
+    if selection_cls is None:
+        return None
+    try:
+        cursor = qt_gui.QTextCursor(editor.document())
+        cursor.setPosition(max(0, int(position)))
+        cursor.setPosition(max(0, int(position)) + max(0, int(length)), _text_cursor_move_mode(qt_gui, "KeepAnchor"))
+        selection = selection_cls()
+        selection.cursor = cursor
+        selection.format = text_format
+        return selection
+    except Exception:
+        return None
+
+
+def _extra_selection_class(qt_widgets):
+    for owner_name in ("QTextEdit", "QPlainTextEdit"):
+        owner = getattr(qt_widgets, owner_name, None)
+        if owner is None:
+            continue
+        selection_cls = getattr(owner, "ExtraSelection", None)
+        if selection_cls is not None:
+            return selection_cls
+    return None
+
+
+def _set_editor_extra_selections(editor, selections: list[object]) -> None:
+    setter = getattr(editor, "setExtraSelections", None)
+    if setter is None:
+        return
+    try:
+        setter(selections)
+    except Exception:
+        pass
+
+
+def _scroll_editors_to_search_match(editors, search_matches, search_index: int, qt_gui) -> None:
     if not search_matches:
         return
-    _panel_index, line_index = search_matches[search_index % len(search_matches)]
+    match = search_matches[search_index % len(search_matches)]
+    line_index = match[1]
     for editor in editors:
         _scroll_editor_to_line(editor, line_index, qt_gui)
 

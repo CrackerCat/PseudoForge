@@ -14,15 +14,19 @@ from ida_pseudoforge.config import (
 from ida_pseudoforge.ida import ui_preview as ui_preview_module
 from ida_pseudoforge.ida.ui_preview import (
     _MAX_HIGHLIGHT_LINES,
+    _SIDE_BY_SIDE_SEARCH_CURRENT_BG,
+    _SIDE_BY_SIDE_SEARCH_BG,
     _SIDE_BY_SIDE_SEARCH_MAX_HEIGHT,
     _SIDE_BY_SIDE_STATUS_MAX_HEIGHT,
     _SIDE_BY_SIDE_SUMMARY_MAX_HEIGHT,
+    _apply_search_highlights,
     _bounded_panel_text,
     _fixed_width_system_font,
     _highlight_preview_lines,
     _plain_text_no_wrap,
     _qt_horizontal_orientation,
     _search_line_matches,
+    _search_text_matches,
     _side_by_side_block_comment_spans,
     _side_by_side_summary_text,
     _side_by_side_text_formats,
@@ -30,6 +34,7 @@ from ida_pseudoforge.ida.ui_preview import (
     _scroll_editors_to_search_match,
     _size_policy_value,
     _syntax_highlight_lines,
+    _text_cursor_move_mode,
     _text_cursor_move_operation,
     show_text_view,
     side_by_side_preview_enabled,
@@ -241,6 +246,25 @@ class UiPreviewTests(unittest.TestCase):
 
         self.assertEqual(matches, [(0, 1), (1, 1), (1, 2)])
 
+    def test_side_by_side_search_text_matches_include_offsets(self) -> None:
+        matches = _search_text_matches(
+            [
+                "Needle one\nneedle two\nnone",
+                "clean needle and needle",
+            ],
+            "NEEDLE",
+        )
+
+        self.assertEqual(
+            matches,
+            [
+                (0, 0, 0, 6),
+                (0, 1, 11, 6),
+                (1, 0, 6, 6),
+                (1, 0, 17, 6),
+            ],
+        )
+
     def test_side_by_side_search_scroll_does_not_steal_focus(self) -> None:
         class FakeQtGui:
             class QTextCursor:
@@ -302,6 +326,9 @@ class UiPreviewTests(unittest.TestCase):
                     Start = "start"
                     Down = "down"
 
+                class MoveMode:
+                    KeepAnchor = "keep_anchor"
+
             class QFontDatabase:
                 class SystemFont:
                     FixedFont = "fixed_font"
@@ -314,9 +341,72 @@ class UiPreviewTests(unittest.TestCase):
         self.assertEqual(_plain_text_no_wrap(FakeQtWidgets), "no_wrap")
         self.assertEqual(_text_cursor_move_operation(FakeQtGui, "Start"), "start")
         self.assertEqual(_text_cursor_move_operation(FakeQtGui, "Down"), "down")
+        self.assertEqual(_text_cursor_move_mode(FakeQtGui, "KeepAnchor"), "keep_anchor")
         self.assertEqual(_fixed_width_system_font(FakeQtGui), "font:fixed_font")
         self.assertEqual(_size_policy_value(FakeQtWidgets, "Preferred"), "preferred")
         self.assertEqual(_size_policy_value(FakeQtWidgets, "Fixed"), "fixed")
+
+    def test_side_by_side_search_highlights_all_and_current_matches(self) -> None:
+        class FakeColor:
+            def __init__(self, red, green, blue) -> None:
+                self.rgb = (red, green, blue)
+
+        class FakeTextCharFormat:
+            def __init__(self) -> None:
+                self.background = None
+                self.foreground = None
+
+            def setBackground(self, color) -> None:
+                self.background = color
+
+            def setForeground(self, color) -> None:
+                self.foreground = color
+
+        class FakeCursor:
+            KeepAnchor = "keep_anchor"
+
+            def __init__(self, document) -> None:
+                self.document = document
+                self.positions = []
+
+            def setPosition(self, position, mode=None) -> None:
+                self.positions.append((position, mode))
+
+        class FakeQtGui:
+            QColor = FakeColor
+            QTextCharFormat = FakeTextCharFormat
+            QTextCursor = FakeCursor
+
+        class FakeExtraSelection:
+            def __init__(self) -> None:
+                self.cursor = None
+                self.format = None
+
+        class FakeQtWidgets:
+            class QTextEdit:
+                ExtraSelection = FakeExtraSelection
+
+        class FakeEditor:
+            def __init__(self, document) -> None:
+                self._document = document
+                self.selections = []
+
+            def document(self):
+                return self._document
+
+            def setExtraSelections(self, selections) -> None:
+                self.selections = selections
+
+        editors = [FakeEditor("raw"), FakeEditor("cleaned")]
+        matches = [(0, 0, 2, 6), (1, 0, 4, 6), (1, 2, 20, 6)]
+
+        _apply_search_highlights(editors, matches, 1, FakeQtGui, FakeQtWidgets)
+
+        self.assertEqual(len(editors[0].selections), 1)
+        self.assertEqual(len(editors[1].selections), 2)
+        self.assertEqual(editors[0].selections[0].format.background.rgb, _SIDE_BY_SIDE_SEARCH_BG)
+        self.assertEqual(editors[1].selections[-1].format.background.rgb, _SIDE_BY_SIDE_SEARCH_CURRENT_BG)
+        self.assertEqual(editors[1].selections[-1].cursor.positions, [(4, None), (10, "keep_anchor")])
 
     def test_side_by_side_block_comment_highlight_is_line_local(self) -> None:
         self.assertEqual(_side_by_side_block_comment_spans("code /* one */ tail"), [(5, 9)])

@@ -476,6 +476,8 @@ mode configuration fallback.
 - Viewer lines use IDA color tag syntax highlighting where practical; large previews automatically fall back to plain text.
 - Side-by-side dockable panes use Qt syntax highlighting where practical and
   fall back to plain text when Qt highlighter APIs are unavailable.
+- Side-by-side search highlights every matched occurrence in both panes and
+  uses a stronger highlight for the active `Prev`/`Next` match.
 - `.forge`, `Copy all`, and `Save as...` output remain plain text without color tags.
 - Set `PSEUDOFORGE_DISABLE_PREVIEW_HIGHLIGHT=1` before launching IDA to isolate syntax-highlight issues.
 - Run `Edit/PseudoForge/Configure preview mode` and select

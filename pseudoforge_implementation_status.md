@@ -565,6 +565,8 @@ P2 IDA side-by-side preview update:
 - The dockable panel now keeps the status, warning/rule summary, and search
   controls in fixed-height rows so the raw and cleaned code panes receive the
   available vertical space.
+- Side-by-side search now marks every matched occurrence with a subdued
+  highlight and marks the active `Prev`/`Next` match with a stronger highlight.
 - The raw and cleaned dockable panes use Qt syntax highlighting when
   `QSyntaxHighlighter` is available, including an explicit neutral foreground
   base so IDA theme defaults do not turn unchanged pseudocode into comment
