@@ -414,7 +414,7 @@ __int64 __fastcall sub_140002350(__int64 a1, POB_PRE_OPERATION_CALLBACK a2)
     blockedListEntry = *(__int64 **)(a1 + 168);
     if ( blockedListEntry != (__int64 *)(a1 + 168) )
     {
-      while ( (HANDLE)blockedListEntry[2] != targetProcessId )
+      while ( (_QWORD)blockedListEntry[2] != targetProcessId )
       {
         blockedListEntry = (__int64 *)*blockedListEntry;
         if ( blockedListEntry == (__int64 *)(a1 + 168) )
@@ -506,6 +506,41 @@ __int64 __fastcall sub_140002350(__int64 a1, POB_PRE_OPERATION_CALLBACK a2)
         self.assertNotIn("*((_DWORD *)blockedListEntry + 6)", rendered)
         self.assertNotIn("*((_DWORD *)eventRecord + 9)", rendered)
         self.assertNotIn("*((_QWORD *)preOperationInfo + 4)", rendered)
+
+    def test_ob_process_rule_inequality_inference_requires_time_update_evidence(self) -> None:
+        capture = capture_from_pseudocode(
+            """
+__int64 __fastcall sub_140002350(__int64 a1, POB_PRE_OPERATION_CALLBACK a2)
+{
+  int desiredAccess;
+  __int64 *blockedListEntry;
+  HANDLE targetProcessId;
+
+  targetProcessId = PsGetProcessId(*((PEPROCESS *)a2 + 1));
+  desiredAccess = 0;
+  if ( *(_DWORD *)a2 == 1 )
+  {
+    desiredAccess = *(_DWORD *)(*((_QWORD *)a2 + 4) + 4LL);
+  }
+  if ( desiredAccess )
+  {
+    blockedListEntry = *(__int64 **)(a1 + 168);
+    while ( (HANDLE)blockedListEntry[2] != targetProcessId )
+    {
+      blockedListEntry = (__int64 *)*blockedListEntry;
+    }
+    ++*((_DWORD *)blockedListEntry + 6);
+  }
+  return 0LL;
+}
+"""
+        )
+        rendered = render_cleaned_pseudocode(capture, build_clean_plan(capture))
+
+        self.assertNotIn("INFERRED_OB_PROCESS_RULE_RECORD *blockedListEntry;", rendered)
+        self.assertNotIn("blockedListEntry->ProcessId", rendered)
+        self.assertIn("blockedListEntry[2] != targetProcessId", rendered)
+        self.assertIn("*((_DWORD *)blockedListEntry + 6)", rendered)
 
     def test_callback_registration_toggle_rewrites_ob_operation_registration(self) -> None:
         class FakeProvider:
