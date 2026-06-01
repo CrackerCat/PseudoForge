@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-import re
+from dataclasses import replace
 from pathlib import Path
 
 from ida_pseudoforge.config import (
@@ -18,11 +18,11 @@ from ida_pseudoforge.core.forge_store import (
 from ida_pseudoforge.core.helper_aliases import (
     RuntimeHelperAlias,
     apply_runtime_helper_aliases,
-    infer_runtime_helper_aliases_from_texts,
+    infer_direct_runtime_helper_aliases,
+    is_runtime_helper_alias_advisory,
     runtime_helper_alias_summary,
 )
 from ida_pseudoforge.core.lvar_analysis import build_clean_plan
-from ida_pseudoforge.core.normalize import extract_calls
 from ida_pseudoforge.core.plan_schema import CleanPlan, FunctionCapture
 from ida_pseudoforge.core.render import render_cleaned_pseudocode
 from ida_pseudoforge.core.rule_diagnostics import format_rule_report_summary
@@ -73,7 +73,6 @@ except Exception:
 PLUGIN_STATE_GROUP = "plugin_state"
 _ANALYSIS_STATE = PluginAnalysisState()
 _DIRECT_HELPER_ALIAS_MAX_CALLEES = 8
-_DECOMPILER_HELPER_RE = re.compile(r"^(?:sub|j_sub)_[0-9A-Fa-f]+$")
 
 
 def analyze_current_function(purpose: str = "analyze") -> tuple[FunctionCapture, CleanPlan]:
@@ -539,8 +538,11 @@ def _write_forge_snapshot(capture: FunctionCapture, plan: CleanPlan) -> tuple[Pa
 
 
 def _render_cleaned_with_direct_helper_aliases(capture: FunctionCapture, plan: CleanPlan) -> str:
-    cleaned = render_cleaned_pseudocode(capture, plan)
-    aliases = _direct_runtime_helper_aliases(cleaned, capture)
+    aliases = _direct_runtime_helper_aliases(capture.pseudocode, capture)
+    render_plan = _plan_without_runtime_helper_alias_warnings(plan, aliases)
+    cleaned = render_cleaned_pseudocode(capture, render_plan)
+    if not aliases:
+        aliases = _direct_runtime_helper_aliases(cleaned, capture)
     if not aliases:
         return cleaned
     log_event(
@@ -550,11 +552,21 @@ def _render_cleaned_with_direct_helper_aliases(capture: FunctionCapture, plan: C
     return apply_runtime_helper_aliases(cleaned, aliases)
 
 
+def _plan_without_runtime_helper_alias_warnings(plan: CleanPlan, aliases: dict[str, RuntimeHelperAlias]) -> CleanPlan:
+    if not aliases or not plan.warnings:
+        return plan
+    filtered = [
+        warning
+        for warning in plan.warnings
+        if not is_runtime_helper_alias_advisory(warning, aliases)
+    ]
+    if len(filtered) == len(plan.warnings):
+        return plan
+    return replace(plan, warnings=filtered)
+
+
 def _direct_runtime_helper_aliases(cleaned: str, capture: FunctionCapture) -> dict[str, RuntimeHelperAlias]:
-    helper_texts = []
-    for call_name in _direct_decompiler_helper_calls(cleaned, capture.name):
-        if len(helper_texts) >= _DIRECT_HELPER_ALIAS_MAX_CALLEES:
-            break
+    def load_helper_text(call_name: str) -> str | None:
         try:
             helper_capture = capture_function_by_name(call_name)
         except Exception as exc:
@@ -562,31 +574,25 @@ def _direct_runtime_helper_aliases(cleaned: str, capture: FunctionCapture) -> di
                 "analysis.helper_alias.capture_failed caller=\"%s\" callee=\"%s\" error=\"%s\""
                 % (_ascii_for_log(capture.name), _ascii_for_log(call_name), _ascii_for_log(str(exc)))
             )
-            continue
+            return None
         if helper_capture is None or helper_capture.ea == capture.ea:
-            continue
+            return None
         try:
             helper_plan = build_clean_plan(helper_capture)
-            helper_texts.append(render_cleaned_pseudocode(helper_capture, helper_plan))
+            return render_cleaned_pseudocode(helper_capture, helper_plan)
         except Exception as exc:
             log_event(
                 "analysis.helper_alias.render_failed caller=\"%s\" callee=\"%s\" error=\"%s\""
                 % (_ascii_for_log(capture.name), _ascii_for_log(call_name), _ascii_for_log(str(exc)))
             )
-    return infer_runtime_helper_aliases_from_texts(helper_texts)
+            return None
 
-
-def _direct_decompiler_helper_calls(text: str, current_name: str) -> list[str]:
-    result = []
-    seen = set()
-    for call_name in extract_calls(text):
-        if call_name == current_name or not _DECOMPILER_HELPER_RE.match(call_name):
-            continue
-        if call_name in seen:
-            continue
-        seen.add(call_name)
-        result.append(call_name)
-    return result
+    return infer_direct_runtime_helper_aliases(
+        cleaned,
+        capture.name,
+        load_helper_text,
+        max_callees=_DIRECT_HELPER_ALIAS_MAX_CALLEES,
+    )
 
 
 def _set_capture_source_path(capture: FunctionCapture) -> None:

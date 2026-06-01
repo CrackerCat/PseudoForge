@@ -1088,6 +1088,20 @@ Completed:
   46 processed with `-SkipLibThunk`, and 51 processed with all IDA-discovered
   no-PDB functions; both runs succeeded with 0 skipped, 0 failed, and LLM
   disabled for all functions.
+- [x] Added generic IDA batch direct-helper alias postprocessing so no-PDB
+  callers can render strongly evidenced runtime memory helpers as standard
+  `memset`/`memmove` calls without requiring the user to analyze every helper
+  first in the interactive session.
+- [x] Normalized exact-size local array zero-fill calls to `sizeof(localArray)`
+  after the helper has already been classified generically, keeping pointer
+  targets as literal byte counts.
+- [x] Fixed generated-code style handling for control statements whose body is
+  a C label followed by a terminal statement, without matching specific label
+  names, functions, addresses, or sample strings.
+- [x] Reran the full no-PDB IDA batch with IDA-specific postprocessing and
+  Claude CLI login using `claude-opus-4-8`: 51 processed, 51 succeeded,
+  0 skipped, 0 failed, 48 LLM rename passes succeeded, and 3 functions used
+  deterministic fallback after external model policy blocks.
 
 ### Current Evidence
 
@@ -1104,6 +1118,13 @@ Completed:
   `pseudoforge_out\ida_e2e_quality\record_compare_20260601_224936`: 51
   processed, 51 succeeded, 0 skipped, 0 failed, LLM disabled for all
   functions.
+- The latest all-discovered-function no-PDB + LLM run is
+  `pseudoforge_out\ida_batch_eval\ida_postprocess_llm_opus48_full_20260602_004100`:
+  51 processed, 51 succeeded, 0 skipped, 0 failed, model
+  `claude-opus-4-8`, provider `claude_login_via_claude_cli`, quality average
+  score 75.88, average opportunity 30.78, and sanity checks found 0 dangling
+  `else`, 0 broken pointer-member comparisons, 0 unresolved helper-call
+  memset candidates, and 0 unbraced `if`-label bodies in cleaned outputs.
 - Completed in the latest cycles: generic runtime memory-helper alias inference
   and generic inferred-record field cleanup for casted index expressions.
   It classifies strongly evidenced `sub_*` memory-fill/memory-move helpers by

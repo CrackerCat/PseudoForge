@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Iterable
+from typing import Callable, Iterable
 
 from ida_pseudoforge.core.normalize import (
+    extract_calls,
     extract_function_name,
     extract_function_signature,
     extract_parameters_from_signature,
@@ -30,6 +31,38 @@ class _RuntimeHelperCandidate:
 
 
 _DECOMPILER_HELPER_RE = re.compile(r"^(?:sub|j_sub)_[0-9A-Fa-f]+$")
+
+
+def decompiler_helper_call_names(text: str, current_name: str) -> list[str]:
+    result = []
+    seen = set()
+    for call_name in extract_calls(text):
+        if call_name == current_name or not _DECOMPILER_HELPER_RE.match(call_name):
+            continue
+        if call_name in seen:
+            continue
+        seen.add(call_name)
+        result.append(call_name)
+    return result
+
+
+def infer_direct_runtime_helper_aliases(
+    text: str,
+    current_name: str,
+    helper_text_loader: Callable[[str], str | None],
+    max_callees: int = 8,
+) -> dict[str, RuntimeHelperAlias]:
+    helper_texts = []
+    for call_name in decompiler_helper_call_names(text, current_name):
+        if len(helper_texts) >= max(0, int(max_callees)):
+            break
+        try:
+            helper_text = helper_text_loader(call_name)
+        except Exception:
+            helper_text = None
+        if helper_text:
+            helper_texts.append(helper_text)
+    return infer_runtime_helper_aliases_from_texts(helper_texts)
 
 
 def infer_runtime_helper_aliases_from_texts(texts: Iterable[str]) -> dict[str, RuntimeHelperAlias]:
@@ -88,7 +121,7 @@ def apply_runtime_helper_aliases(text: str, aliases: dict[str, RuntimeHelperAlia
     result = text
     for original_name, alias in sorted(aliases.items(), key=lambda item: len(item[0]), reverse=True):
         result = _replace_call_name(result, original_name, alias.alias_name)
-    return result
+    return _normalize_standard_memory_alias_calls(result)
 
 
 def runtime_helper_alias_summary(aliases: dict[str, RuntimeHelperAlias]) -> list[dict[str, object]]:
@@ -102,6 +135,17 @@ def runtime_helper_alias_summary(aliases: dict[str, RuntimeHelperAlias]) -> list
         }
         for alias in sorted(aliases.values(), key=lambda item: item.original_name)
     ]
+
+
+def is_runtime_helper_alias_advisory(warning: object, aliases: dict[str, RuntimeHelperAlias]) -> bool:
+    match = re.match(
+        r"^(?P<name>(?:sub|j_sub)_[0-9A-Fa-f]+)\s+behaves like\s+(?P<alias>[A-Za-z_][A-Za-z0-9_]*)\b",
+        str(warning or "").strip(),
+    )
+    if match is None:
+        return False
+    alias = aliases.get(match.group("name"))
+    return alias is not None and alias.alias_name == match.group("alias")
 
 
 def _assign_alias_names(candidates: list[_RuntimeHelperCandidate]) -> dict[str, RuntimeHelperAlias]:
@@ -231,6 +275,102 @@ def _has_destination_alias_write(text: str, destination: str, byte_count: str) -
         if re.search(r"\*\s*%s\s*=" % alias, text[match.end() :]):
             return True
     return False
+
+
+def _normalize_standard_memory_alias_calls(text: str) -> str:
+    array_sizes = _local_array_byte_sizes(text)
+    if not array_sizes:
+        return text
+
+    def replace_memset(match: re.Match[str]) -> str:
+        target = match.group("target")
+        expected_size = array_sizes.get(target)
+        if expected_size is None:
+            return match.group(0)
+        actual_size = _parse_c_integer_literal(match.group("size"))
+        if actual_size != expected_size:
+            return match.group(0)
+        return "memset(%s, 0, sizeof(%s))" % (target, target)
+
+    return re.sub(
+        r"\bmemset\(\s*(?P<target>[A-Za-z_][A-Za-z0-9_]*)\s*,\s*"
+        r"(?P<value>0|0LL|0i64|0u|0UL|0ULL|NULL|nullptr|FALSE|false)\s*,\s*"
+        r"(?P<size>0x[0-9A-Fa-f]+|\d+)(?:LL|i64|uLL|ULL|u|UL)?\s*\)",
+        replace_memset,
+        text or "",
+    )
+
+
+def _local_array_byte_sizes(text: str) -> dict[str, int]:
+    result: dict[str, int] = {}
+    for match in re.finditer(
+        r"(?m)^\s*(?P<type>[A-Za-z_][A-Za-z0-9_\s]*?)\s+"
+        r"(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*\[\s*(?P<count>0x[0-9A-Fa-f]+|\d+)\s*\]\s*;",
+        text or "",
+    ):
+        element_size = _known_array_element_size(match.group("type"))
+        count = _parse_c_integer_literal(match.group("count"))
+        if element_size <= 0 or count is None:
+            continue
+        result[match.group("name")] = element_size * count
+    return result
+
+
+def _known_array_element_size(type_text: str) -> int:
+    normalized = re.sub(r"\b(?:const|volatile|signed)\b", " ", type_text or "")
+    normalized = re.sub(r"\s+", " ", normalized).strip().lower()
+    sizes = {
+        "_byte": 1,
+        "byte": 1,
+        "char": 1,
+        "unsigned char": 1,
+        "__int8": 1,
+        "unsigned __int8": 1,
+        "char8_t": 1,
+        "uchar": 1,
+        "_word": 2,
+        "word": 2,
+        "wchar_t": 2,
+        "__int16": 2,
+        "unsigned __int16": 2,
+        "char16_t": 2,
+        "short": 2,
+        "unsigned short": 2,
+        "ushort": 2,
+        "_dword": 4,
+        "dword": 4,
+        "__int32": 4,
+        "unsigned __int32": 4,
+        "char32_t": 4,
+        "long": 4,
+        "unsigned long": 4,
+        "int": 4,
+        "unsigned int": 4,
+        "ulong": 4,
+        "_qword": 8,
+        "qword": 8,
+        "__int64": 8,
+        "unsigned __int64": 8,
+        "long long": 8,
+        "unsigned long long": 8,
+        "longlong": 8,
+        "ulonglong": 8,
+        "ulong64": 8,
+        "_oword": 16,
+        "__int128": 16,
+        "xmmword": 16,
+    }
+    return sizes.get(normalized, 0)
+
+
+def _parse_c_integer_literal(value: str) -> int | None:
+    token = re.sub(r"(?i)(ui64|i64|ull|llu|ll|ul|lu|u|l)$", "", (value or "").strip())
+    if not token:
+        return None
+    try:
+        return int(token, 16 if token.lower().startswith("0x") else 10)
+    except ValueError:
+        return None
 
 
 def _returns_first_parameter(text: str, escaped_parameter: str) -> bool:

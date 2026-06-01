@@ -195,6 +195,29 @@ class RenderStyleTests(unittest.TestCase):
         self.assertNotIn("mdl- <=", styled)
         self.assertNotIn("{\n  else", styled)
 
+    def test_label_body_after_if_is_wrapped_with_following_statement(self) -> None:
+        styled = enforce_generated_code_style(
+            "if ( guardValue != expectedValue )\n"
+            "FailurePath:\n"
+            "  // PseudoForge: terminal failure path.\n"
+            "  __fastfail(3u);\n"
+            "ContinueCleanup:\n"
+            "  cleanup();\n"
+        )
+
+        self.assertIn(
+            "if ( guardValue != expectedValue )\n"
+            "{\n"
+            "  FailurePath:\n"
+            "    // PseudoForge: terminal failure path.\n"
+            "    __fastfail(3u);\n"
+            "}\n"
+            "ContinueCleanup:\n"
+            "  cleanup();",
+            styled,
+        )
+        self.assertNotIn("if ( guardValue != expectedValue )\nFailurePath:", styled)
+
     def test_nested_else_after_empty_if_does_not_treat_shifts_as_comparisons(self) -> None:
         styled = enforce_generated_code_style(
             "if ( flags << 1 )\n"

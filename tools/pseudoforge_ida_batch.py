@@ -8,6 +8,7 @@ import re
 import sys
 import time
 import traceback
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
@@ -31,11 +32,13 @@ from ida_pseudoforge.core.forge_store import (
 from ida_pseudoforge.core.helper_aliases import (
     RuntimeHelperAlias,
     apply_runtime_helper_aliases,
+    infer_direct_runtime_helper_aliases,
     infer_runtime_helper_aliases_from_texts,
+    is_runtime_helper_alias_advisory,
     runtime_helper_alias_summary,
 )
 from ida_pseudoforge.core.lvar_analysis import build_clean_plan
-from ida_pseudoforge.core.plan_schema import LocalVariable
+from ida_pseudoforge.core.plan_schema import CleanPlan, FunctionCapture, LocalVariable
 from ida_pseudoforge.core.render import render_cleaned_pseudocode
 from ida_pseudoforge.profiles.loader import active_profile_root, configure_profile_dir, profile_load_warnings
 from ida_pseudoforge.ida.decompiler import merge_lvars_from_text_and_cfunc
@@ -66,6 +69,16 @@ except Exception:
     idaapi = None
     idautils = None
     idc = None
+
+
+_DIRECT_HELPER_ALIAS_MAX_CALLEES = 8
+
+
+@dataclass(frozen=True)
+class _BatchRenderResult:
+    cleaned: str
+    plan: CleanPlan
+    aliases: dict[str, RuntimeHelperAlias]
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -281,7 +294,9 @@ def _analyze_function(
         capture = capture_from_pseudocode(pseudocode, name=name, ea=ea, source_path=str(target_path))
         capture.lvars = merge_lvars_from_text_and_cfunc(capture.lvars, _extract_lvars_from_cfunc(cfunc))
         plan, llm_status, llm_error = _build_plan_with_optional_llm(capture, rename_provider)
-        cleaned = render_cleaned_pseudocode(capture, plan)
+        render_result = _render_cleaned_with_ida_postprocess(capture, plan)
+        plan = render_result.plan
+        cleaned = render_result.cleaned
         section = render_forge_function_section(capture, plan, cleaned)
         if forge_writer is not None:
             forge_writer.write_section(section)
@@ -297,6 +312,7 @@ def _analyze_function(
             "flow_rewrites": len(plan.flow_rewrites),
             "warnings": len(warnings),
             "warning_samples": warnings[:5],
+            "helper_aliases": runtime_helper_alias_summary(render_result.aliases),
             "llm_status": llm_status,
             "elapsed_seconds": round(time.monotonic() - started, 3),
         }
@@ -401,6 +417,60 @@ def _build_plan_with_optional_llm(capture, rename_provider: Any | None):
         plan = build_clean_plan(capture)
         plan.warnings.insert(0, "LLM rename assist failed; deterministic fallback used: %s" % exc)
         return plan, "fallback", str(exc)
+
+
+def _render_cleaned_with_ida_postprocess(
+    capture: FunctionCapture,
+    plan: CleanPlan,
+    helper_text_loader: Any | None = None,
+) -> _BatchRenderResult:
+    aliases = _direct_runtime_helper_aliases(capture.pseudocode, capture, helper_text_loader)
+    render_plan = _plan_without_runtime_helper_alias_warnings(plan, aliases)
+    cleaned = render_cleaned_pseudocode(capture, render_plan)
+    if not aliases:
+        aliases = _direct_runtime_helper_aliases(cleaned, capture, helper_text_loader)
+        render_plan = _plan_without_runtime_helper_alias_warnings(plan, aliases)
+        if render_plan is not plan:
+            cleaned = render_cleaned_pseudocode(capture, render_plan)
+    if aliases:
+        cleaned = apply_runtime_helper_aliases(cleaned, aliases)
+    return _BatchRenderResult(cleaned=cleaned, plan=render_plan, aliases=aliases)
+
+
+def _plan_without_runtime_helper_alias_warnings(plan: CleanPlan, aliases: dict[str, RuntimeHelperAlias]) -> CleanPlan:
+    if not aliases or not plan.warnings:
+        return plan
+    filtered = [
+        warning
+        for warning in plan.warnings
+        if not is_runtime_helper_alias_advisory(warning, aliases)
+    ]
+    if len(filtered) == len(plan.warnings):
+        return plan
+    return replace(plan, warnings=filtered)
+
+
+def _direct_runtime_helper_aliases(
+    text: str,
+    capture: FunctionCapture,
+    helper_text_loader: Any | None = None,
+) -> dict[str, RuntimeHelperAlias]:
+    if helper_text_loader is None:
+        helper_text_loader = lambda call_name: _render_helper_text_for_alias(call_name, capture)
+    return infer_direct_runtime_helper_aliases(
+        text,
+        capture.name,
+        helper_text_loader,
+        max_callees=_DIRECT_HELPER_ALIAS_MAX_CALLEES,
+    )
+
+
+def _render_helper_text_for_alias(call_name: str, caller_capture: FunctionCapture) -> str | None:
+    helper_capture = _capture_function_by_name(call_name, caller_capture.source_path)
+    if helper_capture is None or helper_capture.ea == caller_capture.ea:
+        return None
+    helper_plan = build_clean_plan(helper_capture)
+    return render_cleaned_pseudocode(helper_capture, helper_plan)
 
 
 def _combined_warnings(primary: list[object], secondary: list[str]) -> list[str]:
@@ -697,6 +767,64 @@ def _function_name(ea: int) -> str:
     except Exception:
         name = ""
     return name or "sub_%X" % ea
+
+
+def _capture_function_by_name(name: str, source_path: str = "") -> FunctionCapture | None:
+    if ida_hexrays is None or ida_funcs is None:
+        return None
+    ea = _function_ea_by_name(name)
+    if ea is None:
+        return None
+    try:
+        func = ida_funcs.get_func(ea)
+    except Exception:
+        return None
+    if func is None:
+        return None
+    try:
+        cfunc = ida_hexrays.decompile(func)
+    except Exception:
+        return None
+    if cfunc is None:
+        return None
+    pseudocode = _cfunc_text(cfunc)
+    try:
+        function_name = ida_funcs.get_func_name(getattr(func, "start_ea", ea)) or name
+    except Exception:
+        function_name = name
+    capture = capture_from_pseudocode(
+        pseudocode,
+        name=function_name,
+        ea=int(getattr(func, "start_ea", ea)),
+        source_path=source_path,
+    )
+    capture.lvars = merge_lvars_from_text_and_cfunc(capture.lvars, _extract_lvars_from_cfunc(cfunc))
+    return capture
+
+
+def _function_ea_by_name(name: str) -> int | None:
+    if not name:
+        return None
+    badaddr = getattr(idaapi, "BADADDR", None) if idaapi is not None else None
+    if idc is not None:
+        getter = getattr(idc, "get_name_ea_simple", None)
+        if callable(getter):
+            try:
+                ea = int(getter(name))
+                if badaddr is None or ea != int(badaddr):
+                    return ea
+            except Exception:
+                pass
+    if idaapi is not None:
+        getter = getattr(idaapi, "get_name_ea", None)
+        if callable(getter):
+            try:
+                ea = int(getter(int(badaddr or 0), name))
+                if badaddr is None or ea != int(badaddr):
+                    return ea
+            except Exception:
+                pass
+    return None
 
 
 def _cfunc_text(cfunc: Any) -> str:

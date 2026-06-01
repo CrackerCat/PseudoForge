@@ -133,15 +133,19 @@ def _requires_brace_body(stripped: str) -> bool:
 def _can_wrap_body(stripped: str) -> bool:
     if not stripped:
         return False
-    if stripped.endswith(":"):
+    if stripped.startswith(("case ", "default:")):
         return False
-    return not stripped.startswith(("case ", "default:"))
+    if stripped.endswith(":") and not _is_label_line(stripped):
+        return False
+    return True
 
 
 def _find_statement_end(lines: list[str], start_index: int) -> int:
     if start_index < 0 or start_index >= len(lines):
         return start_index
     stripped = lines[start_index].strip()
+    if _is_label_line(stripped):
+        return _find_labeled_statement_end(lines, start_index)
     if stripped == "{":
         return _find_matching_brace(lines, start_index)
     if _starts_if(stripped) or _starts_else_if(stripped):
@@ -159,6 +163,13 @@ def _find_statement_end(lines: list[str], start_index: int) -> int:
             return start_index
         return _find_body_end(lines, start_index)
     return start_index
+
+
+def _find_labeled_statement_end(lines: list[str], label_index: int) -> int:
+    body_index = _next_meaningful_index(lines, label_index + 1)
+    if body_index < 0:
+        return label_index
+    return _find_statement_end(lines, body_index)
 
 
 def _find_body_end(lines: list[str], header_index: int) -> int:
@@ -268,6 +279,10 @@ def _starts_for(stripped: str) -> bool:
 
 def _starts_while(stripped: str) -> bool:
     return stripped.startswith("while ")
+
+
+def _is_label_line(stripped: str) -> bool:
+    return re.match(r"^[A-Za-z_][A-Za-z0-9_]*:$", stripped) is not None
 
 
 def _repair_nested_else_after_empty_if(lines: list[str]) -> list[str]:

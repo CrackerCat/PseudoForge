@@ -22,6 +22,7 @@ from ida_pseudoforge.core.llm_assist import parse_llm_rename_response, suggest_r
 from ida_pseudoforge.core.lvar_analysis import build_clean_plan
 from ida_pseudoforge.core.render import render_cleaned_pseudocode
 from ida_pseudoforge.models.cli_provider import CliRenameProvider
+from ida_pseudoforge.models.prompting import build_cli_rename_prompt
 from ida_pseudoforge.models.provider_factory import build_rename_provider
 from ida_pseudoforge.models.provider_registry import (
     PROVIDER_CHATGPT_OAUTH_VIA_CODEX_CLI,
@@ -272,6 +273,15 @@ class LlmConfigTests(unittest.TestCase):
         provider = CliRenameProvider(command_template=command, timeout_seconds=10)
 
         self.assertEqual(provider.suggest_renames(capture).strip(), '{"renames": []}')
+
+    def test_cli_rename_prompt_is_defensive_and_rename_only(self) -> None:
+        prompt = build_cli_rename_prompt(capture_from_pseudocode(LLM_PLAN_SAMPLE))
+
+        self.assertIn("defensive static-code readability assistant", prompt)
+        self.assertIn("Your only task is to suggest clearer local variable and argument names", prompt)
+        self.assertIn("Do not rewrite code", prompt)
+        self.assertIn("do not provide bypass, evasion, persistence, exploitation", prompt)
+        self.assertIn("Return only a JSON object", prompt)
 
     def test_provider_factory_openrouter(self) -> None:
         provider = build_rename_provider(

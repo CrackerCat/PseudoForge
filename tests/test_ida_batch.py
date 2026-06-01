@@ -14,6 +14,7 @@ from tools.pseudoforge_ida_batch import (
     _build_plan_with_optional_llm,
     _cancel_file_requested,
     _function_file_stem,
+    _render_cleaned_with_ida_postprocess,
     _write_compare_artifacts,
 )
 from tools.summarize_pseudoforge_ida_batch import summarize_records
@@ -203,6 +204,52 @@ void __fastcall Caller(char *buffer)
             self.assertEqual(result["aliases"][0]["alias_name"], "memset")
             self.assertIn("memset(buffer, 0, 64LL);", updated_caller)
             self.assertIn("+  memset(buffer, 0, 64LL);", updated_diff)
+
+    def test_ida_batch_render_uses_direct_helper_alias_postprocess(self) -> None:
+        capture = capture_from_pseudocode(
+            """
+void __fastcall Caller()
+{
+  _BYTE localBuffer[64];
+
+  sub_180001000(localBuffer, 0LL, 64LL);
+}
+""",
+            name="Caller",
+            ea=0x180001100,
+            source_path=r"F:\target\driver.sys",
+        )
+        plan = build_clean_plan(capture)
+        plan.warnings.append("sub_180001000 behaves like memset (dst,0,len)")
+        helper_text = """
+__int64 __fastcall sub_180001000(char *destination, unsigned __int8 fillByte, unsigned __int64 byteCount)
+{
+  __int64 result;
+  __int64 fillPattern;
+
+  result = (__int64)destination;
+  fillPattern = 0x101010101010101LL * fillByte;
+  if ( byteCount >= 4 )
+  {
+    *(_DWORD *)destination = fillPattern;
+    *(_DWORD *)&destination[byteCount - 4] = fillPattern;
+  }
+  return result;
+}
+"""
+
+        result = _render_cleaned_with_ida_postprocess(
+            capture,
+            plan,
+            helper_text_loader=lambda name: helper_text if name == "sub_180001000" else None,
+        )
+
+        self.assertEqual([], result.plan.warnings)
+        self.assertEqual("memset", result.aliases["sub_180001000"].alias_name)
+        self.assertIn("Warnings: 0", result.cleaned)
+        self.assertNotIn("behaves like memset", result.cleaned)
+        self.assertIn("memset(localBuffer, 0, sizeof(localBuffer));", result.cleaned)
+        self.assertNotIn("sub_180001000(localBuffer", result.cleaned)
 
     def test_ida_batch_progress_record_identifies_next_function(self) -> None:
         record = _batch_progress_record(0x140001000, "NtOpenProcess", 4, 25)

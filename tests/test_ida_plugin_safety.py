@@ -218,6 +218,67 @@ class IdaPluginSafetyTests(unittest.TestCase):
         self.assertIn("memset(buffer, 0, 64LL);", rendered)
         self.assertNotIn("sub_140001000(buffer", rendered)
 
+    def test_direct_runtime_helper_alias_hides_resolved_helper_warning(self):
+        capture = FunctionCapture(
+            ea=0x140001100,
+            name="Caller",
+            prototype="void __fastcall Caller()",
+            pseudocode=(
+                "void __fastcall Caller()\n"
+                "{\n"
+                "  _BYTE localBuffer[64];\n"
+                "\n"
+                "  sub_140001000(localBuffer, 0LL, 64LL);\n"
+                "}\n"
+            ),
+            lvars=[LocalVariable("localBuffer", "_BYTE[64]", False, 0)],
+            source_path=r"F:\target\driver.sys",
+        )
+        plan = CleanPlan(
+            function_ea=capture.ea,
+            function_name=capture.name,
+            input_fingerprint=capture.input_fingerprint(),
+            warnings=["sub_140001000 behaves like memset (dst,0,len)"],
+        )
+        helper_capture = FunctionCapture(
+            ea=0x140001000,
+            name="sub_140001000",
+            prototype="__int64 __fastcall sub_140001000(char *a1, unsigned __int8 a2, unsigned __int64 a3)",
+            pseudocode=(
+                "__int64 __fastcall sub_140001000(char *a1, unsigned __int8 a2, unsigned __int64 a3)\n"
+                "{\n"
+                "  __int64 result;\n"
+                "  __int64 v4;\n"
+                "\n"
+                "  result = (__int64)a1;\n"
+                "  v4 = 0x101010101010101LL * a2;\n"
+                "  if ( a3 >= 4 )\n"
+                "  {\n"
+                "    *(_DWORD *)a1 = v4;\n"
+                "    *(_DWORD *)&a1[a3 - 4] = v4;\n"
+                "  }\n"
+                "  return result;\n"
+                "}\n"
+            ),
+            lvars=[
+                LocalVariable("a1", "char *", True, 0),
+                LocalVariable("a2", "unsigned __int8", True, 1),
+                LocalVariable("a3", "unsigned __int64", True, 2),
+            ],
+            source_path=r"F:\target\driver.sys",
+        )
+        old_capture = actions_module.capture_function_by_name
+        actions_module.capture_function_by_name = lambda name: helper_capture if name == "sub_140001000" else None
+        try:
+            rendered = actions_module._render_cleaned_with_direct_helper_aliases(capture, plan)
+        finally:
+            actions_module.capture_function_by_name = old_capture
+
+        self.assertIn("Warnings: 0", rendered)
+        self.assertNotIn("Warning detail:", rendered)
+        self.assertNotIn("behaves like memset", rendered)
+        self.assertIn("memset(localBuffer, 0, sizeof(localBuffer));", rendered)
+
     def test_plugin_analysis_session_normalizes_windows_path_identity(self):
         capture = _capture()
         plan = _plan(capture)

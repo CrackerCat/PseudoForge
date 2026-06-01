@@ -84,6 +84,22 @@ void __fastcall Caller(char *buffer)
 """
 
 
+ARRAY_CALLER_SAMPLE = r"""
+void __fastcall Caller()
+{
+  _OWORD sourceBuffer[4];
+  _BYTE copyBuffer[64];
+  UCHAR ucharBuffer[64];
+  char *buffer;
+
+  sub_180001000(sourceBuffer, 0LL, 64LL);
+  sub_180001000(copyBuffer, 0LL, 64LL);
+  sub_180001000(ucharBuffer, 0LL, 64LL);
+  sub_180001000(buffer, 0, 64LL);
+}
+"""
+
+
 class RuntimeHelperAliasTests(unittest.TestCase):
     def test_infers_memory_fill_helper_from_role_and_body_evidence(self) -> None:
         alias = infer_runtime_helper_alias(OPTIMIZED_FILL_HELPER)
@@ -123,6 +139,16 @@ class RuntimeHelperAliasTests(unittest.TestCase):
 
         self.assertIn("memset(buffer, 0, 64LL);", updated)
         self.assertNotIn("sub_180001000(buffer", updated)
+
+    def test_memset_alias_uses_sizeof_for_matching_local_arrays(self) -> None:
+        aliases = infer_runtime_helper_aliases_from_texts([OPTIMIZED_FILL_HELPER])
+        updated = apply_runtime_helper_aliases(ARRAY_CALLER_SAMPLE, aliases)
+
+        self.assertIn("memset(sourceBuffer, 0, sizeof(sourceBuffer));", updated)
+        self.assertIn("memset(copyBuffer, 0, sizeof(copyBuffer));", updated)
+        self.assertIn("memset(ucharBuffer, 0, sizeof(ucharBuffer));", updated)
+        self.assertIn("memset(buffer, 0, 64LL);", updated)
+        self.assertNotIn("memset(sourceBuffer, 0LL, 64LL);", updated)
 
     def test_keeps_standard_alias_when_role_has_multiple_helpers(self) -> None:
         second_helper = OPTIMIZED_FILL_HELPER.replace("sub_180001000", "sub_180001100")
