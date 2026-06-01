@@ -318,7 +318,17 @@ def _attach_rename_identities(renames: list[RenameSuggestion], capture: Function
 
 
 def _suggestion_rank(suggestion: RenameSuggestion) -> tuple[int, float]:
-    return (_source_priority(suggestion.source), suggestion.confidence)
+    return (_source_priority_for_suggestion(suggestion), suggestion.confidence)
+
+
+def _source_priority_for_suggestion(suggestion: RenameSuggestion) -> int:
+    if (
+        suggestion.source == "prototype"
+        and suggestion.confidence <= 0.83
+        and re.fullmatch(r"argument\d+", suggestion.new or "")
+    ):
+        return _source_priority("prototype-generic")
+    return _source_priority(suggestion.source)
 
 
 def _source_priority(source: str) -> int:
@@ -334,11 +344,15 @@ def _source_priority(source: str) -> int:
         "kernel-zw-probe": 96,
         "kernel-list": 95,
         "kernel-pool": 94,
+        "runtime-memory": 93,
         "semantic-rule": 90,
+        "buffer-contract": 88,
         "pattern": 80,
         "rule": 70,
         "llm": 50,
         "field-fallback": 45,
+        "structure-base": 42,
+        "prototype-generic": 35,
     }
     return priorities.get(source, 40)
 

@@ -1043,10 +1043,49 @@ Remaining:
 
 ## P3: Real-Target Validation Continuation
 
+Status: In progress.
+
+Completed:
+
+- [x] Ran an IDA Professional 9.0 no-PDB end-to-end quality loop over the
+  kernel pattern driver fixture with PDB loading disabled.
+- [x] Reviewed all 46 cleaned functions from the no-PDB run and recorded the
+  baseline, cycle, and final quality findings in
+  `pseudoforge_ida_e2e_quality_report.md`.
+- [x] Fixed the no-PDB OB pre-operation callback signature/body parameter
+  mismatch with a generic callback signature synchronization rule.
+- [x] Added profile-backed no-PDB `OB_PRE_OPERATION_INFORMATION` field
+  rewrites for trusted profile fields such as `Object`, `ObjectType`, and
+  `CallContext`; unprofiled offsets such as the current flag-style DWORD remain
+  raw.
+- [x] Added regression coverage for the no-PDB OB callback path and reran the
+  full unit suite plus the 46-function IDA batch.
+- [x] Completed a review-mode hardcoding audit and replaced direct OB field
+  offset rewrites with profile-derived structure layout logic.
+- [x] Added a generic no-PDB pseudocode quality scorer with JSON and Markdown
+  reports for raw-vs-cleaned compare directories.
+- [x] Added generic dataflow-backed rename recovery for structure-base context
+  parameters, LIST_ENTRY heads, single lookaside allocation results, optimized
+  runtime memory helpers, and output-buffer contracts.
+- [x] Improved generic pointer-alias cleanup so indexed uses of a single
+  assignment alias fold back to the canonical pointer while address-taken aliases
+  remain untouched.
+- [x] Ran review-mode validation after each quality-lift cycle, removed a direct
+  decompiler-global address literal from production rewrite logic, and reran the
+  no-PDB 46-function IDA batch.
+
 ### Current Evidence
 
 - The status document records large-scale non-LLM and LLM ntoskrnl validation.
 - The next continuation point is after `0x14021A324 RtlSparseArrayElementAllocate`.
+- `pseudoforge_ida_e2e_quality_report.md` records the 2026-06-01 no-PDB kernel
+  pattern driver quality loop, including baseline, cycle, and review-correction
+  artifacts.
+- The final no-PDB quality-lift run is
+  `pseudoforge_out\ida_e2e_quality\cycle12_20260601_211425`: 46 processed,
+  46 succeeded, 0 skipped, 0 failed, LLM disabled for all functions.
+- The quality scorer improved the 46-function average from 61.98 in cycle4 to
+  65.83 in cycle12, while generic argument artifacts dropped from 252 to 60.
 
 ### Problem
 
@@ -1068,6 +1107,9 @@ to compare across runs.
 4. Convert accepted findings into focused regression tests before broad fixes.
 5. Track profile version, IDA version, model/provider, and command line in every
    report.
+6. Continue lifting remaining no-PDB quality gaps with generic rules only:
+   profile-backed layout recovery for repeated raw offsets, cross-function role
+   propagation, runtime-helper classification, and calibrated score thresholds.
 
 ### Acceptance Criteria
 

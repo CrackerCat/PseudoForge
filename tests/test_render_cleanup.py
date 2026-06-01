@@ -74,6 +74,49 @@ class RenderCleanupTests(unittest.TestCase):
         self.assertIn("alias = first;", rendered)
         self.assertIn("alias = second;", rendered)
 
+    def test_pointer_alias_fold_rewrites_indexed_alias_uses(self) -> None:
+        text = "\n".join(
+            [
+                "void sample()",
+                "{",
+                "  _QWORD *canonical;",
+                "  _QWORD *alias;",
+                "",
+                "  alias = canonical;",
+                "  alias[1] = tail;",
+                "  *alias = head;",
+                "}",
+            ]
+        )
+
+        rendered = apply_generic_render_cleanups(text)
+
+        self.assertNotIn("_QWORD *alias;", rendered)
+        self.assertNotIn("alias = canonical;", rendered)
+        self.assertIn("canonical[1] = tail;", rendered)
+        self.assertIn("*canonical = head;", rendered)
+
+    def test_pointer_alias_fold_skips_address_taken_aliases(self) -> None:
+        text = "\n".join(
+            [
+                "void sample()",
+                "{",
+                "  _QWORD *canonical;",
+                "  _QWORD *alias;",
+                "",
+                "  alias = canonical;",
+                "  Probe(&alias);",
+                "  alias[1] = tail;",
+                "}",
+            ]
+        )
+
+        rendered = apply_generic_render_cleanups(text)
+
+        self.assertIn("_QWORD *alias;", rendered)
+        self.assertIn("alias = canonical;", rendered)
+        self.assertIn("Probe(&alias);", rendered)
+
     def test_unrolled_wide_array_copy_rewrites_to_qmemcpy(self) -> None:
         text = "\n".join(
             [

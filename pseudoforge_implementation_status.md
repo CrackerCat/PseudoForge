@@ -216,7 +216,7 @@ Implemented in this folder:
    - `tests/test_pseudoforge_free_cli.py`
    - `tests/test_release_pseudoforge.py`
    - renderer golden snapshots under `tests/snapshots`
-   - current suite covers 268 unit tests
+   - current suite covers 345 unit tests
 
 ## Latest Implementation Notes
 
@@ -624,6 +624,15 @@ The current implementation state reflects the `NtSetSystemInformation` and `NtSe
 - The kernel-pattern driver now includes an opt-in `ObRegisterCallbacks` process object callback path with LIST_ENTRY-backed whitelist/blacklist walks, `CONTAINING_RECORD`, requested-access checks, and whitelist auto-add telemetry concentrated inside `PfkpObjectPreOperation` for single-function decompile testing.
 - OB pre-operation callback rendering now reduces noisy Hex-Rays raw offset loads such as `*(_DWORD *)(*(_QWORD *)(preOperationInfo + 32) + 4LL)` to `preOperationInfo->Parameters->...OriginalDesiredAccess` when the callback context is known.
 - No-symbol OB pre-operation callback rendering now recognizes suspicious `POB_PRE_OPERATION_CALLBACK` second parameters when field-use evidence matches `POB_PRE_OPERATION_INFORMATION`, preserves a stronger context-parameter name when available, normalizes the second parameter to `preOperationInfo`, rewrites typed-array offset loads such as `*((_QWORD *)preOperationInfo + 4)`, and renders zero callback returns as `OB_PREOP_SUCCESS`.
+- No-PDB OB pre-operation callback signature overrides now keep the function body
+  parameter tokens consistent with the rendered signature, and typed offset
+  field loads for profile-known fields such as `Object`, `ObjectType`, and
+  `CallContext` are rewritten only after `OB_PRE_OPERATION_INFORMATION`
+  evidence is present. Unprofiled offsets such as the current flag-style DWORD
+  remain raw instead of being invented.
+- OB pre-operation typed field rendering now derives field offsets from the
+  loaded kernel structure and alias profiles rather than encoding byte offsets
+  in the rewrite rule.
 - OB pre-operation desired-access low-byte zero initialization is normalized to a full scalar zero assignment only after `OriginalDesiredAccess` field evidence identifies the target access-mask local.
 - OB pre-operation private LIST_ENTRY process-rule records and event records now receive preview-only inferred record types only when allocation size, list walk shape, and fixed field-write evidence all match; confirmed process-rule loops are rendered with a separate `LIST_ENTRY *` iterator and `CONTAINING_RECORD(...)`.
 - Profile-backed `0xC???????` NTSTATUS error literals are now rendered symbolically in 4-byte local assignments and `_DWORD` stores, while wider stores keep the raw literal.
@@ -761,7 +770,55 @@ python -B .\tools\pseudoforge_free_cli.py .\samples\pseudocode\NtSetSystemInform
 git diff --check -- .
 ```
 
-Latest unit test count: 189 tests.
+Latest unit test count: 345 tests.
+
+Latest no-PDB kernel pattern driver quality loop:
+
+```text
+Date: 2026-06-01
+IDA: C:\Program Files\IDA Professional 9.0\ida.exe
+Driver: samples\kernel_pattern_driver\x64\Release\PfKernelPattern.sys
+No-PDB method: copied .sys to a fresh input_no_pdb directory and ran -NoPdb
+Processed: 46 functions
+Succeeded: 46
+Skipped: 0
+Failed: 0
+Warnings: 0
+Report: pseudoforge_ida_e2e_quality_report.md
+Final artifacts: pseudoforge_out\ida_e2e_quality\cycle4_20260601_200922
+```
+
+Latest no-PDB generic quality-lift loop:
+
+```text
+Date: 2026-06-01
+Implemented:
+- Added ida_pseudoforge.core.quality_score plus tools/score_pseudoforge_quality.py for corpus-agnostic raw-vs-cleaned quality reports.
+- Added generic dataflow rename recovery for repeated constant-offset structure bases, LIST_ENTRY heads, single lookaside allocation results, optimized memmove/memset-style helpers, and output-buffer contracts.
+- Lowered generic prototype argument names below stronger dataflow-backed sources so no-PDB roles can replace argumentN without overriding callback/profile/LLM evidence.
+- Extended text local capture to parse multi-pointer declarations such as _QWORD **v11.
+- Relaxed single-assignment pointer-alias cleanup so indexed alias uses fold to the canonical pointer while address-taken aliases remain protected.
+- Review-mode hardcoding audit removed a direct qword_140... decompiler-global literal from production rewrite logic and replaced it with a generic qword_[0-9A-Fa-f]+ pattern.
+
+Validation:
+- python -B -m unittest discover -s tests -v: 363 tests OK
+- python -m pytest -q: 363 passed, 5 subtests passed
+- python -B -m compileall .\pseudoforge.py .\ida_pseudoforge .\tests .\tools: passed
+- git diff --check -- .: passed
+- IDA Professional 9.0 no-PDB cycle12: processed=46, succeeded=46, skipped=0, failed=0, LLM disabled=46
+
+Quality score cycle4 -> cycle12:
+- average score: 61.98 -> 65.83
+- average opportunity: 43.87 -> 40.80
+- generic_argument_name: 252 -> 60
+- compiler_local_name: 931 -> 872
+- artifact_reduction: 377 -> 518
+
+Final artifacts:
+- pseudoforge_out\ida_e2e_quality\cycle12_20260601_211425
+- pseudoforge_out\ida_e2e_quality\cycle12_20260601_211425\quality_score.md
+- pseudoforge_out\ida_e2e_quality\cycle12_20260601_211425\quality_score.json
+```
 
 Latest headless IDA batch validation, retained as prior full-corpus evidence:
 

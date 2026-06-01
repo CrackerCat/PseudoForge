@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from collections.abc import Callable
 
-from ida_pseudoforge.core.normalize import extract_parameters_from_signature
+from ida_pseudoforge.core.normalize import extract_parameters_from_signature, safe_identifier_replace
 from ida_pseudoforge.core.plan_schema import FunctionCapture
 
 
@@ -28,12 +28,21 @@ def apply_known_callback_signature(
             context_name = "registrationContext"
             if params:
                 context_name = _stable_callback_parameter_name(params[0][0], "registrationContext")
+            body_rename_map = {}
+            if len(params) >= 1 and params[0][0] != context_name:
+                body_rename_map[params[0][0]] = context_name
+            if len(params) >= 2 and params[1][0] != "preOperationInfo":
+                body_rename_map[params[1][0]] = "preOperationInfo"
             override = [
                 "OB_PREOP_CALLBACK_STATUS __fastcall %s(" % capture.name,
                 "        PVOID %s," % context_name,
                 "        POB_PRE_OPERATION_INFORMATION preOperationInfo)",
             ]
             lines = lines[:index] + override + lines[end_index + 1 :]
+            if body_rename_map:
+                body_start = index + len(override)
+                body = "\n".join(lines[body_start:])
+                lines = lines[:body_start] + safe_identifier_replace(body, body_rename_map).splitlines()
             return _rewrite_ob_preop_success_returns("\n".join(lines))
     return text
 

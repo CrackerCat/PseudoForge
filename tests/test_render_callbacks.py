@@ -275,6 +275,81 @@ __int64 __fastcall PfkpObjectPreOperation(__int64 a1, __int64 a2)
         self.assertNotIn("*(_DWORD *)(*(_QWORD *)(preOperationInfo + 32) + 4LL)", rendered)
         self.assertNotIn("*(_DWORD *)preOperationInfo", rendered)
 
+    def test_no_pdb_ob_pre_operation_signature_keeps_body_parameter_consistent(self) -> None:
+        capture = capture_from_pseudocode(
+            """
+__int64 __fastcall sub_140002350(__int64 a1, __int64 a2)
+{
+  int desiredAccess;
+  HANDLE targetProcessId;
+  PVOID objectType;
+  PVOID callContext;
+
+  targetProcessId = PsGetProcessId(*(PEPROCESS *)(a2 + 8));
+  objectType = *(PVOID *)(a2 + 16);
+  callContext = *(PVOID *)(a2 + 24);
+  desiredAccess = 0;
+  if ( *(_DWORD *)a2 == 1 )
+  {
+    desiredAccess = *(_DWORD *)(*(_QWORD *)(a2 + 32) + 4LL);
+  }
+  if ( (*(_DWORD *)(a2 + 4) & 1) != 0 )
+  {
+    desiredAccess = 0;
+  }
+  ExAcquireFastMutex((PFAST_MUTEX)(a1 + 72));
+  *(_DWORD *)(a1 + 784) = 0xC000009A;
+  ExReleaseFastMutex((PFAST_MUTEX)(a1 + 72));
+  return 0LL;
+}
+"""
+        )
+        plan = build_clean_plan(capture)
+        rendered = render_cleaned_pseudocode(capture, plan)
+        body = rendered.rsplit("*/", 1)[-1]
+
+        self.assertIn("OB_PREOP_CALLBACK_STATUS __fastcall sub_140002350(", rendered)
+        self.assertIn("PVOID registrationContext,", rendered)
+        self.assertIn("POB_PRE_OPERATION_INFORMATION preOperationInfo)", rendered)
+        self.assertIn("ExAcquireFastMutex((PFAST_MUTEX)(registrationContext + 72));", body)
+        self.assertIn("*(_DWORD *)(registrationContext + 784) = STATUS_INSUFFICIENT_RESOURCES;", body)
+        self.assertIn("targetProcessId = PsGetProcessId((PEPROCESS)preOperationInfo->Object);", body)
+        self.assertIn("objectType = preOperationInfo->ObjectType;", body)
+        self.assertIn("callContext = preOperationInfo->CallContext;", body)
+        self.assertIn("if ( (*(_DWORD *)(preOperationInfo + 4) & 1) != 0 )", body)
+        self.assertNotIn("preOperationInfo->Flags", body)
+        self.assertIn("preOperationInfo->Operation == 1", body)
+        self.assertNotRegex(body, r"\ba1\b")
+        self.assertNotRegex(body, r"\ba2\b")
+
+    def test_preinfo_name_alone_does_not_rewrite_generic_offsets_as_ob_fields(self) -> None:
+        capture = capture_from_pseudocode(
+            """
+__int64 __fastcall GenericPreInfoSample(__int64 preInfo)
+{
+  PVOID objectType;
+  unsigned int flags;
+
+  objectType = *(PVOID *)(preInfo + 16);
+  flags = *(_DWORD *)(preInfo + 4);
+  if ( *(_DWORD *)preInfo == 1 )
+  {
+    flags += 1;
+  }
+  return flags + (__int64)objectType;
+}
+"""
+        )
+        rendered = render_cleaned_pseudocode(capture, build_clean_plan(capture))
+        body = rendered.rsplit("*/", 1)[-1]
+
+        self.assertIn("objectType = *(PVOID *)(preInfo + 16);", body)
+        self.assertIn("flags = *(_DWORD *)(preInfo + 4);", body)
+        self.assertIn("if ( *(_DWORD *)preInfo == 1 )", body)
+        self.assertNotIn("preInfo->Operation", body)
+        self.assertNotIn("preInfo->ObjectType", body)
+        self.assertNotIn("preInfo->Flags", body)
+
     def test_ob_pre_operation_no_symbol_typed_offset_loads_are_rewritten(self) -> None:
         class FakeProvider:
             def suggest_renames(self, capture):
@@ -385,7 +460,8 @@ __int64 __fastcall sub_140002350(__int64 a1, POB_PRE_OPERATION_CALLBACK a2)
             "desiredAccess = preOperationInfo->Parameters->DuplicateHandleInformation.OriginalDesiredAccess;",
             rendered,
         )
-        self.assertIn("(preOperationInfo->Flags & 1) == 0", rendered)
+        self.assertIn("(*((_DWORD *)preOperationInfo + 1) & 1) == 0", rendered)
+        self.assertNotIn("preOperationInfo->Flags", rendered)
         self.assertIn("*(_DWORD *)(deviceContext + 784) = STATUS_INSUFFICIENT_RESOURCES;", rendered)
         self.assertIn("typedef struct _INFERRED_OB_PROCESS_RULE_RECORD", rendered)
         self.assertIn("INFERRED_OB_PROCESS_RULE_RECORD *callerListEntry;", rendered)
@@ -409,7 +485,6 @@ __int64 __fastcall sub_140002350(__int64 a1, POB_PRE_OPERATION_CALLBACK a2)
         self.assertNotIn("*((_DWORD *)callerListEntry + 6)", rendered)
         self.assertNotIn("*((_DWORD *)eventRecord + 9)", rendered)
         self.assertNotIn("*((_QWORD *)preOperationInfo + 4)", rendered)
-        self.assertNotIn("*((_DWORD *)preOperationInfo + 1)", rendered)
 
     def test_callback_registration_toggle_rewrites_ob_operation_registration(self) -> None:
         class FakeProvider:

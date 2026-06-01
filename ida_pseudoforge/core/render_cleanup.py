@@ -236,7 +236,7 @@ def _single_assignment_pointer_aliases(text: str) -> list[tuple[str, str]]:
             continue
         if len(re.findall(r"(?m)^\s*%s\s*=" % re.escape(alias), text)) != 1:
             continue
-        if re.search(r"&\s*%s\b|\b%s\s*\[" % (re.escape(alias), re.escape(alias)), text):
+        if re.search(r"&\s*%s\b" % re.escape(alias), text):
             continue
         aliases.append((alias, target))
     return aliases

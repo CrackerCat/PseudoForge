@@ -68,6 +68,12 @@ def pattern_renames(capture: FunctionCapture) -> list[RenameSuggestion]:
         )
     suggestions.extend(_saved_previous_mode_renames(capture))
     suggestions.extend(_same_named_field_local_renames(capture))
+    suggestions.extend(_runtime_memory_parameter_renames(capture))
+    suggestions.extend(_output_buffer_contract_parameter_renames(capture))
+    suggestions.extend(_structure_base_parameter_renames(capture))
+    suggestions.extend(_list_entry_head_parameter_renames(capture))
+    suggestions.extend(_list_entry_head_local_renames(capture))
+    suggestions.extend(_lookaside_entry_allocation_renames(capture))
     suggestions.extend(_cpu_set_mask_renames(text))
     suggestions.extend(_pool_allocation_renames(text))
     return suggestions
@@ -355,6 +361,357 @@ def _same_named_field_local_renames(capture: FunctionCapture) -> list[RenameSugg
             )
         )
     return suggestions
+
+
+def _structure_base_parameter_renames(capture: FunctionCapture) -> list[RenameSuggestion]:
+    candidates = []
+    for old_name, _type_text in extract_parameters_from_signature(capture.prototype):
+        if not re.fullmatch(r"a\d+", old_name or ""):
+            continue
+        offsets = _constant_pointer_offset_uses(capture.pseudocode, old_name)
+        if len(offsets) >= 3:
+            candidates.append(old_name)
+    if len(candidates) != 1:
+        return []
+    old_name = candidates[0]
+    return [
+        RenameSuggestion(
+            kind="arg",
+            old=old_name,
+            new="context",
+            confidence=0.86,
+            source="structure-base",
+            evidence="parameter is repeatedly used as a constant-offset structure base",
+        )
+    ]
+
+
+def _runtime_memory_parameter_renames(capture: FunctionCapture) -> list[RenameSuggestion]:
+    params = extract_parameters_from_signature(capture.prototype)
+    if len(params) != 3:
+        return []
+    destination_name, destination_type = params[0]
+    source_or_fill_name, source_or_fill_type = params[1]
+    byte_count_name, byte_count_type = params[2]
+    if not _is_pointer_type(destination_type) or not _is_integer_size_type(byte_count_type):
+        return []
+    text = capture.pseudocode
+    if _looks_like_memmove_body(text, destination_name, source_or_fill_name, byte_count_name, source_or_fill_type):
+        return _parameter_rename_suggestions(
+            [
+                (destination_name, "destination", 0.92, "first pointer parameter is returned and used as the memory copy destination"),
+                (source_or_fill_name, "source", 0.92, "second pointer parameter is used as the memory copy source"),
+                (byte_count_name, "byteCount", 0.90, "third integer parameter controls the memory copy byte count"),
+            ],
+            source="runtime-memory",
+        )
+    if _looks_like_memset_body(text, destination_name, source_or_fill_name, byte_count_name, source_or_fill_type):
+        return _parameter_rename_suggestions(
+            [
+                (destination_name, "destination", 0.92, "first pointer parameter is returned and used as the memory fill destination"),
+                (source_or_fill_name, "fillByte", 0.91, "second byte-sized parameter is expanded into a repeated fill pattern"),
+                (byte_count_name, "byteCount", 0.90, "third integer parameter controls the memory fill byte count"),
+            ],
+            source="runtime-memory",
+        )
+    return []
+
+
+def _parameter_rename_suggestions(
+    entries: list[tuple[str, str, float, str]],
+    *,
+    source: str,
+) -> list[RenameSuggestion]:
+    suggestions = []
+    for old_name, new_name, confidence, evidence in entries:
+        if old_name == new_name:
+            continue
+        suggestions.append(
+            RenameSuggestion(
+                kind="arg",
+                old=old_name,
+                new=new_name,
+                confidence=confidence,
+                source=source,
+                evidence=evidence,
+            )
+        )
+    return suggestions
+
+
+def _output_buffer_contract_parameter_renames(capture: FunctionCapture) -> list[RenameSuggestion]:
+    params = extract_parameters_from_signature(capture.prototype)
+    if len(params) != 4:
+        return []
+    output_name, output_type = params[1]
+    length_name, length_type = params[2]
+    return_length_name, return_length_type = params[3]
+    if not _is_pointer_type(output_type):
+        return []
+    if not _is_integer_size_type(length_type):
+        return []
+    if not _is_pointer_type(return_length_type):
+        return []
+    text = capture.pseudocode
+    if not _looks_like_output_buffer_contract(text, output_name, length_name, return_length_name):
+        return []
+    return _parameter_rename_suggestions(
+        [
+            (output_name, "outputBuffer", 0.88, "pointer parameter receives structured output writes"),
+            (length_name, "outputBufferLength", 0.88, "integer parameter bounds the structured output buffer"),
+            (return_length_name, "returnLength", 0.88, "pointer parameter receives required or written output length"),
+        ],
+        source="buffer-contract",
+    )
+
+
+def _looks_like_output_buffer_contract(
+    text: str,
+    output_name: str,
+    length_name: str,
+    return_length_name: str,
+) -> bool:
+    output = re.escape(output_name)
+    length = re.escape(length_name)
+    return_length = re.escape(return_length_name)
+    has_length_guard = re.search(r"\b%s\s*<\s*(?:0x[0-9A-Fa-f]+|\d+)\b" % length, text)
+    has_output_header_store = re.search(r"\*\s*%s\s*=|%s\s*\[\s*(?:0|1|2|3|4|5)\s*\]\s*=" % (output, output), text)
+    has_indexed_output_store = re.search(r"\b%s\s*\[[^;\n]+\]\s*=|&\s*%s\s*\[[^;\n]+\]" % (output, output), text)
+    has_return_length_store = re.search(r"\*\s*%s\s*=" % return_length, text)
+    return bool(has_length_guard and has_output_header_store and has_indexed_output_store and has_return_length_store)
+
+
+def _looks_like_memmove_body(
+    text: str,
+    destination_name: str,
+    source_name: str,
+    byte_count_name: str,
+    source_type: str,
+) -> bool:
+    if not _is_pointer_type(source_type):
+        return False
+    if not _returns_first_parameter(text, destination_name):
+        return False
+    destination = re.escape(destination_name)
+    source = re.escape(source_name)
+    byte_count = re.escape(byte_count_name)
+    has_overlap_branch = re.search(r"\b%s\s*<\s*%s\b|\b%s\s*<\s*%s\b" % (source, destination, destination, source), text)
+    has_pointer_delta = re.search(r"\b%s\s*-\s*%s\b|\b%s\s*-\s*%s\b" % (source, destination, destination, source), text)
+    has_byte_count_guard = re.search(
+        r"\b%s\s*(?:<|>|<=|>=|==|!=)\s*(?:0x[0-9A-Fa-f]+|\d+)|\b(?:if|while)\s*\(\s*%s\s*\)"
+        % (byte_count, byte_count),
+        text,
+    )
+    has_sized_access = re.search(
+        r"\b%s\s*\[\s*%s\b|\b%s\s*\[\s*%s\b|&\s*%s\s*\[\s*%s\b|&\s*%s\s*\[\s*%s\b"
+        % (destination, byte_count, source, byte_count, destination, byte_count, source, byte_count),
+        text,
+    )
+    return bool(has_overlap_branch and has_pointer_delta and has_byte_count_guard and has_sized_access)
+
+
+def _looks_like_memset_body(
+    text: str,
+    destination_name: str,
+    fill_name: str,
+    byte_count_name: str,
+    fill_type: str,
+) -> bool:
+    if _is_pointer_type(fill_type):
+        return False
+    if not _returns_first_parameter(text, destination_name):
+        return False
+    destination = re.escape(destination_name)
+    fill = re.escape(fill_name)
+    byte_count = re.escape(byte_count_name)
+    has_fill_expansion = re.search(
+        r"(?:0x0?101010101010101(?:LL|uLL|ULL)?\s*\*\s*%s|%s\s*\*\s*0x0?101010101010101(?:LL|uLL|ULL)?)"
+        % (fill, fill),
+        text,
+    )
+    has_byte_count_guard = re.search(r"\b%s\s*(?:<|>|<=|>=|==|!=)\s*(?:0x[0-9A-Fa-f]+|\d+)" % byte_count, text)
+    has_destination_store = re.search(r"\*\s*\([^;\n)]*\*\s*\)\s*%s\s*=" % destination, text) or re.search(
+        r"\*\s*%s\s*=" % destination,
+        text,
+    )
+    has_sized_destination_access = re.search(r"\b%s\s*\[\s*%s\b|&\s*%s\s*\[\s*%s\b" % (destination, byte_count, destination, byte_count), text)
+    return bool(has_fill_expansion and has_byte_count_guard and (has_destination_store or has_sized_destination_access))
+
+
+def _returns_first_parameter(text: str, name: str) -> bool:
+    escaped = re.escape(name)
+    direct_return = re.search(r"\breturn\s+(?:\([^)]+\)\s*)?%s\s*;" % escaped, text)
+    if direct_return:
+        return True
+    alias_pattern = re.compile(
+        r"\b(?P<alias>[A-Za-z_][A-Za-z0-9_]*)\s*=\s*(?:\([^)]+\)\s*)?%s\s*;" % escaped
+    )
+    for match in alias_pattern.finditer(text):
+        alias = re.escape(match.group("alias"))
+        tail = text[match.end() :]
+        if re.search(r"\breturn\s+%s\s*;" % alias, tail):
+            return True
+    return False
+
+
+def _is_pointer_type(type_text: str) -> bool:
+    return "*" in (type_text or "") or "&" in (type_text or "")
+
+
+def _is_integer_size_type(type_text: str) -> bool:
+    text = type_text or ""
+    if _is_pointer_type(text):
+        return False
+    return bool(re.search(r"\b(?:size_t|SIZE_T|__int64|int64|ULONG|DWORD|int|char|unsigned|signed)\b", text))
+
+
+def _constant_pointer_offset_uses(text: str, name: str) -> set[str]:
+    offsets: set[str] = set()
+    escaped = re.escape(name)
+    for line in (text or "").splitlines():
+        if not re.search(r"\b%s\s*\+" % escaped, line):
+            continue
+        if not _line_has_pointer_offset_evidence(line, name):
+            continue
+        for match in re.finditer(r"\b%s\s*\+\s*(?P<offset>0x[0-9A-Fa-f]+|\d+)\b" % escaped, line):
+            offsets.add(match.group("offset").lower())
+    return offsets
+
+
+def _line_has_pointer_offset_evidence(line: str, name: str) -> bool:
+    escaped = re.escape(name)
+    return bool(
+        re.search(r"\*\s*\([^;\n)]*\*\s*\)\s*\(\s*%s\s*\+" % escaped, line)
+        or re.search(r"\(\s*(?:P[A-Z0-9_]+|struct\s+[A-Za-z_][A-Za-z0-9_]*\s*\*[\*\s]*|[A-Za-z_][A-Za-z0-9_\s]*\*[\*\s]*)\)\s*\(\s*%s\s*\+" % escaped, line)
+    )
+
+
+def _list_entry_head_parameter_renames(capture: FunctionCapture) -> list[RenameSuggestion]:
+    candidates = []
+    for old_name, type_text in extract_parameters_from_signature(capture.prototype):
+        if "*" not in type_text:
+            continue
+        if _looks_like_list_entry_head_parameter(capture.pseudocode, old_name):
+            candidates.append(old_name)
+    if len(candidates) != 1:
+        return []
+    old_name = candidates[0]
+    if old_name == "listHead":
+        return []
+    return [
+        RenameSuggestion(
+            kind="arg",
+            old=old_name,
+            new="listHead",
+            confidence=0.90,
+            source="kernel-list",
+            evidence="pointer parameter is used as a self-referential LIST_ENTRY head",
+        )
+    ]
+
+
+def _list_entry_head_local_renames(capture: FunctionCapture) -> list[RenameSuggestion]:
+    candidates = []
+    for local in capture.lvars:
+        if "*" not in (local.type or ""):
+            continue
+        if _looks_like_list_entry_head_local(capture.pseudocode, local.name):
+            candidates.append(local.name)
+    if len(candidates) != 1:
+        return []
+    old_name = candidates[0]
+    if old_name == "listHead":
+        return []
+    return [
+        RenameSuggestion(
+            kind="lvar",
+            old=old_name,
+            new="listHead",
+            confidence=0.88,
+            source="kernel-list",
+            evidence="local pointer is used as a self-referential LIST_ENTRY head",
+        )
+    ]
+
+
+def _lookaside_entry_allocation_renames(capture: FunctionCapture) -> list[RenameSuggestion]:
+    candidates = []
+    for match in re.finditer(
+        r"\b(?P<dst>[A-Za-z_][A-Za-z0-9_]*)\s*=\s*(?:\([^)]+\)\s*)?"
+        r"ExAllocateFromNPagedLookasideList\s*\(",
+        capture.pseudocode,
+    ):
+        old_name = match.group("dst")
+        if _looks_like_generic_temporary(old_name):
+            candidates.append(old_name)
+    candidates = _unique_preserve_order(candidates)
+    if len(candidates) != 1:
+        return []
+    old_name = candidates[0]
+    if old_name == "lookasideEntry":
+        return []
+    return [
+        RenameSuggestion(
+            kind="lvar",
+            old=old_name,
+            new="lookasideEntry",
+            confidence=0.86,
+            source="kernel-list",
+            evidence="local receives a single lookaside-list allocation result",
+        )
+    ]
+
+
+def _looks_like_list_entry_head_parameter(text: str, name: str) -> bool:
+    escaped = re.escape(name)
+    self_flink_patterns = (
+        r"\(\s*[^)]*\*\s*\)\s*\*\s*%s\s*==\s*%s\b" % (escaped, escaped),
+        r"\*\s*%s\s*==\s*%s\b" % (escaped, escaped),
+        r"\b%s\s*==\s*\(\s*[^)]*\*\s*\)\s*\*\s*%s\b" % (escaped, escaped),
+    )
+    has_self_flink = any(re.search(pattern, text) for pattern in self_flink_patterns)
+    if not has_self_flink:
+        return False
+    has_blink_use = bool(re.search(r"\b%s\s*\[\s*1\s*\]" % escaped, text))
+    has_neighbor_check = bool(
+        re.search(r"\*\s*[A-Za-z_][A-Za-z0-9_]*\s*!=\s*%s\b" % escaped, text)
+        or re.search(r"\b[A-Za-z_][A-Za-z0-9_]*\s*==\s*%s\b" % escaped, text)
+    )
+    return has_blink_use or has_neighbor_check
+
+
+def _looks_like_list_entry_head_local(text: str, name: str) -> bool:
+    if not _looks_like_generic_temporary(name):
+        return False
+    escaped = re.escape(name)
+    has_self_deref_check = bool(
+        re.search(r"\*\s*%s\s*==\s*%s\b" % (escaped, escaped), text)
+        or re.search(r"%s\s*==\s*\*\s*%s\b" % (escaped, escaped), text)
+    )
+    if not has_self_deref_check:
+        return False
+    has_neighbor_integrity = bool(
+        re.search(r"\[\s*1\s*\]\s*!=\s*%s\b" % escaped, text)
+        or re.search(r"\*\s*[A-Za-z_][A-Za-z0-9_]*\s*!=\s*%s\b" % escaped, text)
+        or re.search(r"\[\s*1\s*\]\s*=\s*%s\b" % escaped, text)
+        or re.search(r"=\s*%s\s*;" % escaped, text)
+    )
+    return has_neighbor_integrity
+
+
+def _looks_like_generic_temporary(name: str) -> bool:
+    return bool(re.fullmatch(r"v\d+", name or ""))
+
+
+def _unique_preserve_order(values: list[str]) -> list[str]:
+    result = []
+    seen = set()
+    for value in values:
+        if value in seen:
+            continue
+        seen.add(value)
+        result.append(value)
+    return result
 
 
 def _lower_camel_from_pascal(name: str) -> str:

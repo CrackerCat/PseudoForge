@@ -2,8 +2,13 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from functools import lru_cache
 
-from ida_pseudoforge.core.kernel_api import decode_pool_tag_literal
+from ida_pseudoforge.core.kernel_api import (
+    decode_pool_tag_literal,
+    kernel_structure_metadata,
+    kernel_type_alias_metadata,
+)
 from ida_pseudoforge.core.kernel_semantics import looks_like_driver_entry
 from ida_pseudoforge.core.normalize import extract_parameters_from_signature
 from ida_pseudoforge.core.plan_schema import CleanPlan, FunctionCapture
@@ -16,6 +21,21 @@ class KernelRewriteRule:
     pattern: str
     replacement: str
     flags: int = re.MULTILINE
+
+
+@dataclass(frozen=True)
+class ProfileLayoutField:
+    name: str
+    type_text: str
+    offset: int
+    size: int
+    align: int
+
+
+_PROFILE_POINTER_SIZE = 8
+_OB_PRE_OPERATION_INFORMATION = "OB_PRE_OPERATION_INFORMATION"
+_OB_PRE_CREATE_HANDLE_INFORMATION = "OB_PRE_CREATE_HANDLE_INFORMATION"
+_OB_PRE_DUPLICATE_HANDLE_INFORMATION = "OB_PRE_DUPLICATE_HANDLE_INFORMATION"
 
 
 INFERRED_PROVIDER_TYPE = "\n".join(
@@ -271,7 +291,7 @@ KERNEL_REWRITE_RULES = [
     KernelRewriteRule(
         "tail-flink-check",
         "inferred_record_layout",
-        r"\*\(__int64 \*\*\)qword_140EFEDD8 != &ExpFirmwareTableProviderListHead",
+        r"\*\(__int64 \*\*\)qword_[0-9A-Fa-f]+ != &ExpFirmwareTableProviderListHead",
         "tailLink->Flink != &ExpFirmwareTableProviderListHead",
     ),
     KernelRewriteRule(
@@ -739,22 +759,210 @@ def _has_known_ob_pre_operation_signature(capture: FunctionCapture) -> bool:
     return False
 
 
+@lru_cache(maxsize=None)
+def _profile_structure_layout(structure_name: str) -> tuple[ProfileLayoutField, ...]:
+    metadata = kernel_structure_metadata(structure_name)
+    fields = metadata.get("fields", [])
+    if not isinstance(fields, list):
+        return ()
+
+    offset = 0
+    result: list[ProfileLayoutField] = []
+    for field in fields:
+        if not isinstance(field, dict):
+            continue
+        name = str(field.get("name", "")).strip()
+        if not name:
+            continue
+        type_text = _clean_profile_type(str(field.get("type", "")))
+        size, align = _profile_type_layout(type_text, str(field.get("array", "")))
+        offset = _align_up(offset, align)
+        result.append(ProfileLayoutField(name, type_text, offset, size, align))
+        offset += size
+    return tuple(result)
+
+
+def _profile_field_by_name(structure_name: str, field_name: str) -> ProfileLayoutField | None:
+    for field in _profile_structure_layout(structure_name):
+        if field.name == field_name:
+            return field
+    return None
+
+
+def _profile_field_offset(structure_name: str, field_name: str) -> int | None:
+    field = _profile_field_by_name(structure_name, field_name)
+    return field.offset if field is not None else None
+
+
+def _profile_type_layout(type_text: str, array_text: str = "") -> tuple[int, int]:
+    resolved_type = _resolve_profile_alias(_clean_profile_type(type_text))
+    if "*" in resolved_type:
+        size, align = _PROFILE_POINTER_SIZE, _PROFILE_POINTER_SIZE
+    else:
+        size, align = _scalar_profile_type_layout(resolved_type)
+    count = _profile_array_count(array_text)
+    return max(size * count, 1), max(align, 1)
+
+
+def _scalar_profile_type_layout(type_text: str) -> tuple[int, int]:
+    normalized = _clean_profile_type(type_text).upper()
+    if normalized in {"BOOLEAN", "BYTE", "CHAR", "CCHAR", "INT8", "UCHAR", "UINT8"}:
+        return 1, 1
+    if normalized in {"SHORT", "USHORT", "WCHAR", "WORD", "INT16", "UINT16"}:
+        return 2, 2
+    if normalized in {
+        "__INT64",
+        "INT64",
+        "LONGLONG",
+        "LONG64",
+        "LONG_PTR",
+        "PHYSICAL_ADDRESS",
+        "SIZE_T",
+        "SSIZE_T",
+        "UINT64",
+        "ULONG64",
+        "ULONG_PTR",
+        "ULONGLONG",
+    }:
+        return 8, 8
+    return 4, 4
+
+
+def _clean_profile_type(type_text: str) -> str:
+    text = str(type_text or "")
+    text = re.sub(r"\b(?:IN|OUT|OPTIONAL|CONST)\b", " ", text)
+    text = re.sub(r"_[A-Za-z0-9]+_\s*(?:\([^)]*\))?", " ", text)
+    text = re.sub(r"\b(?:const|volatile|struct|union|enum)\b", " ", text)
+    text = re.sub(r"\s+", " ", text)
+    return text.strip()
+
+
+def _resolve_profile_alias(type_text: str) -> str:
+    resolved = _clean_profile_type(type_text)
+    seen: set[str] = set()
+    while resolved and resolved not in seen:
+        seen.add(resolved)
+        metadata = kernel_type_alias_metadata(resolved)
+        target = _clean_profile_type(str(metadata.get("target", ""))) if metadata else ""
+        if not target or target == resolved:
+            break
+        resolved = target
+    return resolved
+
+
+def _profile_array_count(array_text: str) -> int:
+    match = re.fullmatch(r"\[\s*(?P<count>\d+)\s*\]", str(array_text or "").strip())
+    if match is None:
+        return 1
+    return max(int(match.group("count"), 10), 1)
+
+
+def _align_up(value: int, alignment: int) -> int:
+    if alignment <= 1:
+        return value
+    return (value + alignment - 1) // alignment * alignment
+
+
+def _profile_field_qword_sources(variable: str, structure_name: str, field_name: str) -> list[str]:
+    field = _profile_field_by_name(structure_name, field_name)
+    if field is None:
+        return []
+
+    escaped = re.escape(variable)
+    sources = [
+        r"\b%s->%s\b" % (escaped, re.escape(field.name)),
+        r"\*\(_QWORD\s+\*\)\(\s*%s\s*\+\s*%s\s*\)"
+        % (escaped, _literal_offset_pattern(field.offset)),
+    ]
+    if field.offset % _PROFILE_POINTER_SIZE == 0:
+        sources.append(
+            r"\*\(\(_QWORD\s+\*\)\s*%s\s*\+\s*%d\s*\)"
+            % (escaped, field.offset // _PROFILE_POINTER_SIZE)
+        )
+    return sources
+
+
+def _literal_offset_pattern(offset: int) -> str:
+    return r"%d(?:LL|i64|L)?" % offset
+
+
+def _field_access(variable: str, field: ProfileLayoutField) -> str:
+    return "%s->%s" % (variable, field.name)
+
+
+def _field_access_with_optional_cast(variable: str, field: ProfileLayoutField, requested_type: str) -> str:
+    access = _field_access(variable, field)
+    requested = re.sub(r"\s+", " ", requested_type).strip()
+    if not requested or requested == "PVOID" or requested == field.type_text:
+        return access
+    return "(%s)%s" % (requested, access)
+
+
+def _profile_backed_field_load_pattern(
+    variable: str,
+    structure_name: str,
+    field_name: str,
+) -> re.Pattern[str]:
+    field = _profile_field_by_name(structure_name, field_name)
+    if field is None:
+        return re.compile(r"(?!x)x")
+
+    escaped = re.escape(variable)
+    alternatives = [
+        r"\*\(_QWORD\s+\*\)\(\s*%s\s*\+\s*%s\s*\)"
+        % (escaped, _literal_offset_pattern(field.offset)),
+        r"\*\(\s*(?:P[A-Za-z_][A-Za-z0-9_]*|struct\s+_[A-Za-z_][A-Za-z0-9_]*\s*\*)"
+        r"\s*\*?\s*\)\(\s*%s\s*\+\s*%s\s*\)"
+        % (escaped, _literal_offset_pattern(field.offset)),
+    ]
+    if field.offset % _PROFILE_POINTER_SIZE == 0:
+        index = field.offset // _PROFILE_POINTER_SIZE
+        alternatives.extend(
+            [
+                r"\*\(\(_QWORD\s+\*\)\s*%s\s*\+\s*%d\s*\)" % (escaped, index),
+                r"\*\(\(\s*(?:P[A-Za-z_][A-Za-z0-9_]*|struct\s+_[A-Za-z_][A-Za-z0-9_]*\s*\*)"
+                r"\s+\*\s*\)\s*%s\s*\+\s*%d\s*\)" % (escaped, index),
+            ]
+        )
+    return re.compile("|".join("(?:%s)" % pattern for pattern in alternatives))
+
+
+def _profile_field_is_pointer(field: ProfileLayoutField) -> bool:
+    return "*" in _resolve_profile_alias(field.type_text)
+
+
+def _ob_pre_operation_operation_check_pattern(variable: str) -> re.Pattern[str]:
+    field = _profile_field_by_name(_OB_PRE_OPERATION_INFORMATION, "Operation")
+    if field is None:
+        return re.compile(r"(?!x)x")
+
+    escaped = re.escape(variable)
+    comparisons = []
+    if field.offset == 0:
+        comparisons.append(r"\*\(_DWORD\s+\*\)\s*%s\b\s*==\s*[12]\b" % escaped)
+    else:
+        comparisons.append(
+            r"\*\(_DWORD\s+\*\)\(\s*%s\s*\+\s*%s\s*\)\s*==\s*[12]\b"
+            % (escaped, _literal_offset_pattern(field.offset))
+        )
+    if field.offset % 4 == 0:
+        comparisons.append(
+            r"\*\(\(_DWORD\s+\*\)\s*%s\s*\+\s*%d\s*\)\s*==\s*[12]\b"
+            % (escaped, field.offset // 4)
+        )
+    comparisons.append(r"\b%s->%s\s*==\s*[12]\b" % (escaped, re.escape(field.name)))
+    return re.compile("|".join("(?:%s)" % pattern for pattern in comparisons))
+
+
 def _has_ob_pre_operation_field_evidence(text: str, variable: str) -> bool:
     escaped = re.escape(variable)
-    operation_check = re.search(
-        r"\*\(_DWORD\s+\*\)\s*%s\b\s*==\s*[12]\b" % escaped,
-        text,
-    )
-    desired_access_load = re.search(
-        r"\*\(_DWORD\s+\*\)\(\s*(?:\*\(_QWORD\s+\*\)\(\s*%s\s*\+\s*32(?:LL|i64|L)?\s*\)|"
-        r"\*\(\(_QWORD\s+\*\)\s*%s\s*\+\s*4\s*\))\s*\+\s*4(?:LL|i64|L)?\s*\)"
-        % (escaped, escaped),
-        text,
-    )
-    object_load = re.search(
-        r"\*\(\(\s*PEPROCESS\s+\*\s*\)\s*%s\s*\+\s*1\s*\)" % escaped,
-        text,
-    )
+    operation_check = _ob_pre_operation_operation_check_pattern(variable).search(text)
+    desired_access_load = _ob_pre_operation_desired_access_pattern(variable).search(text)
+    object_load = re.search(r"\b%s->Object\b" % escaped, text) or _profile_backed_field_load_pattern(
+        variable,
+        _OB_PRE_OPERATION_INFORMATION,
+        "Object",
+    ).search(text)
     return bool(operation_check and (desired_access_load or object_load))
 
 
@@ -768,46 +976,104 @@ def _rewrite_ob_pre_operation_field_loads(text: str) -> str:
 
     result = text
     for variable in candidates:
+        if not _has_ob_pre_operation_variable_evidence(result, variable):
+            continue
         result = _rewrite_ob_pre_operation_desired_access_loads(result, variable)
         result = _rewrite_ob_pre_operation_access_mask_zero_init(result, variable)
-        replacements = [
-            (
-                r"\*\(_QWORD\s+\*\)\(\s*%s\s*\+\s*32(?:LL|i64|L)?\s*\)" % re.escape(variable),
-                "%s->Parameters" % variable,
-            ),
-            (
-                r"\*\(\(_QWORD\s+\*\)\s*%s\s*\+\s*4\s*\)" % re.escape(variable),
-                "%s->Parameters" % variable,
-            ),
-            (
-                r"\*\(_QWORD\s+\*\)\(\s*%s\s*\+\s*24(?:LL|i64|L)?\s*\)" % re.escape(variable),
-                "%s->CallContext" % variable,
-            ),
-            (
-                r"\*\(_QWORD\s+\*\)\(\s*%s\s*\+\s*16(?:LL|i64|L)?\s*\)" % re.escape(variable),
-                "%s->ObjectType" % variable,
-            ),
-            (
-                r"\*\(_QWORD\s+\*\)\(\s*%s\s*\+\s*8(?:LL|i64|L)?\s*\)" % re.escape(variable),
-                "%s->Object" % variable,
-            ),
-            (
-                r"\*\(\(\s*PEPROCESS\s+\*\s*\)\s*%s\s*\+\s*1\s*\)" % re.escape(variable),
-                "(PEPROCESS)%s->Object" % variable,
-            ),
-            (
-                r"\*\(\(_DWORD\s+\*\)\s*%s\s*\+\s*1\s*\)" % re.escape(variable),
-                "%s->Flags" % variable,
-            ),
-            (
-                r"\*\(_DWORD\s+\*\)\s*%s\b" % re.escape(variable),
-                "%s->Operation" % variable,
-            ),
-        ]
-        for pattern, replacement in replacements:
-            result = re.sub(pattern, replacement, result)
+        result = _rewrite_profile_backed_field_loads(result, variable, _OB_PRE_OPERATION_INFORMATION)
     result = _rewrite_ob_pre_operation_inferred_records(result)
     return result
+
+
+def _has_ob_pre_operation_variable_evidence(text: str, variable: str) -> bool:
+    escaped = re.escape(variable)
+    if re.search(r"\bPOB_PRE_OPERATION_INFORMATION\s+%s\b" % escaped, text):
+        return True
+    if re.search(r"\b%s->(?:Operation|Object|ObjectType|CallContext|Parameters)\b" % escaped, text):
+        return True
+    operation_check = _ob_pre_operation_operation_check_pattern(variable).search(text)
+    desired_access_load = _ob_pre_operation_desired_access_pattern(variable).search(text)
+    object_load = _profile_backed_field_load_pattern(variable, _OB_PRE_OPERATION_INFORMATION, "Object").search(text)
+    return bool(operation_check and (desired_access_load or object_load))
+
+
+def _rewrite_profile_backed_field_loads(text: str, variable: str, structure_name: str) -> str:
+    result = text
+    fields = sorted(_profile_structure_layout(structure_name), key=lambda field: field.offset, reverse=True)
+    for field in fields:
+        result = _rewrite_profile_qword_field_load(result, variable, field)
+        result = _rewrite_profile_typed_pointer_field_load(result, variable, field)
+        result = _rewrite_profile_dword_field_load(result, variable, field)
+    return result
+
+
+def _rewrite_profile_qword_field_load(text: str, variable: str, field: ProfileLayoutField) -> str:
+    if field.size != _PROFILE_POINTER_SIZE:
+        return text
+
+    escaped = re.escape(variable)
+    result = re.sub(
+        r"\*\(_QWORD\s+\*\)\(\s*%s\s*\+\s*%s\s*\)" % (escaped, _literal_offset_pattern(field.offset)),
+        _field_access(variable, field),
+        text,
+    )
+    if field.offset % _PROFILE_POINTER_SIZE != 0:
+        return result
+    return re.sub(
+        r"\*\(\(_QWORD\s+\*\)\s*%s\s*\+\s*%d\s*\)" % (escaped, field.offset // _PROFILE_POINTER_SIZE),
+        _field_access(variable, field),
+        result,
+    )
+
+
+def _rewrite_profile_typed_pointer_field_load(text: str, variable: str, field: ProfileLayoutField) -> str:
+    if not _profile_field_is_pointer(field):
+        return text
+
+    escaped = re.escape(variable)
+    pointer_type = r"(?:P[A-Za-z_][A-Za-z0-9_]*|struct\s+_[A-Za-z_][A-Za-z0-9_]*\s*\*)"
+    byte_pattern = re.compile(
+        r"\*\(\s*(?P<type>%s)\s*\*?\s*\)\(\s*%s\s*\+\s*%s\s*\)"
+        % (pointer_type, escaped, _literal_offset_pattern(field.offset))
+    )
+    result = byte_pattern.sub(
+        lambda match: _field_access_with_optional_cast(variable, field, match.group("type")),
+        text,
+    )
+    if field.offset % _PROFILE_POINTER_SIZE != 0:
+        return result
+
+    index_pattern = re.compile(
+        r"\*\(\(\s*(?P<type>%s)\s+\*\s*\)\s*%s\s*\+\s*%d\s*\)"
+        % (pointer_type, escaped, field.offset // _PROFILE_POINTER_SIZE)
+    )
+    return index_pattern.sub(
+        lambda match: _field_access_with_optional_cast(variable, field, match.group("type")),
+        result,
+    )
+
+
+def _rewrite_profile_dword_field_load(text: str, variable: str, field: ProfileLayoutField) -> str:
+    if field.size != 4:
+        return text
+
+    escaped = re.escape(variable)
+    replacement = _field_access(variable, field)
+    if field.offset == 0:
+        result = re.sub(r"\*\(_DWORD\s+\*\)\s*%s\b" % escaped, replacement, text)
+    else:
+        result = re.sub(
+            r"\*\(_DWORD\s+\*\)\(\s*%s\s*\+\s*%s\s*\)" % (escaped, _literal_offset_pattern(field.offset)),
+            replacement,
+            text,
+        )
+    if field.offset % 4 != 0:
+        return result
+    return re.sub(
+        r"\*\(\(_DWORD\s+\*\)\s*%s\s*\+\s*%d\s*\)" % (escaped, field.offset // 4),
+        replacement,
+        result,
+    )
 
 
 def _rewrite_ob_pre_operation_inferred_records(text: str) -> str:
@@ -1026,11 +1292,7 @@ def _prepend_ob_inferred_record_types(text: str, include_process: bool, include_
 
 
 def _rewrite_ob_pre_operation_desired_access_loads(text: str, variable: str) -> str:
-    pattern = re.compile(
-        r"\*\(_DWORD\s+\*\)\(\s*(?:\*\(_QWORD\s+\*\)\(\s*%s\s*\+\s*32(?:LL|i64|L)?\s*\)|"
-        r"\*\(\(_QWORD\s+\*\)\s*%s\s*\+\s*4\s*\))"
-        r"\s*\+\s*4(?:LL|i64|L)?\s*\)" % (re.escape(variable), re.escape(variable))
-    )
+    pattern = _ob_pre_operation_desired_access_pattern(variable)
     if pattern.search(text) is None:
         return text
 
@@ -1038,10 +1300,37 @@ def _rewrite_ob_pre_operation_desired_access_loads(text: str, variable: str) -> 
     updated_lines = []
     for index, line in enumerate(lines):
         context = "\n".join(lines[max(0, index - 6) : index + 1])
-        member = _ob_pre_operation_parameters_member(context, variable)
-        replacement = "%s->Parameters->%s.OriginalDesiredAccess" % (variable, member)
+        member, field = _ob_pre_operation_parameters_member(context, variable)
+        replacement = "%s->Parameters->%s.%s" % (variable, member, field)
         updated_lines.append(pattern.sub(replacement, line))
     return "\n".join(updated_lines)
+
+
+def _ob_pre_operation_desired_access_pattern(variable: str) -> re.Pattern[str]:
+    parameter_sources = _profile_field_qword_sources(variable, _OB_PRE_OPERATION_INFORMATION, "Parameters")
+    original_offsets = _ob_pre_operation_original_desired_access_offsets()
+    if not parameter_sources or not original_offsets:
+        return re.compile(r"(?!x)x")
+
+    source_pattern = "|".join("(?:%s)" % source for source in parameter_sources)
+    offset_pattern = "|".join(_literal_offset_pattern(offset) for offset in original_offsets)
+    return re.compile(
+        r"\*\(_DWORD\s+\*\)\(\s*(?:%s)\s*\+\s*(?:%s)\s*\)"
+        % (source_pattern, offset_pattern)
+    )
+
+
+@lru_cache(maxsize=None)
+def _ob_pre_operation_original_desired_access_offsets() -> tuple[int, ...]:
+    offsets = []
+    for structure_name in (
+        _OB_PRE_CREATE_HANDLE_INFORMATION,
+        _OB_PRE_DUPLICATE_HANDLE_INFORMATION,
+    ):
+        offset = _profile_field_offset(structure_name, "OriginalDesiredAccess")
+        if offset is not None:
+            offsets.append(offset)
+    return tuple(sorted(set(offsets)))
 
 
 def _rewrite_ob_pre_operation_access_mask_zero_init(text: str, variable: str) -> str:
@@ -1070,16 +1359,40 @@ def _rewrite_ob_pre_operation_access_mask_zero_init(text: str, variable: str) ->
     return result
 
 
-def _ob_pre_operation_parameters_member(context: str, variable: str) -> str:
+def _ob_pre_operation_parameters_member(context: str, variable: str) -> tuple[str, str]:
+    create_member = _ob_pre_operation_member_name(_OB_PRE_CREATE_HANDLE_INFORMATION)
+    duplicate_member = _ob_pre_operation_member_name(_OB_PRE_DUPLICATE_HANDLE_INFORMATION)
+    access_field = _ob_pre_operation_original_desired_access_field_name()
     if re.search(r"\bOB_OPERATION_HANDLE_DUPLICATE\b", context):
-        return "DuplicateHandleInformation"
+        return duplicate_member, access_field
     if re.search(r"\bOB_OPERATION_HANDLE_CREATE\b", context):
-        return "CreateHandleInformation"
+        return create_member, access_field
     if re.search(r"\*\(_DWORD\s+\*\)\s*%s\b\s*==\s*2(?:u|U|l|L|ll|LL)?\b" % re.escape(variable), context):
-        return "DuplicateHandleInformation"
+        return duplicate_member, access_field
     if re.search(r"%s->Operation\s*==\s*2(?:u|U|l|L|ll|LL)?\b" % re.escape(variable), context):
-        return "DuplicateHandleInformation"
-    return "CreateHandleInformation"
+        return duplicate_member, access_field
+    return create_member, access_field
+
+
+def _ob_pre_operation_member_name(structure_name: str) -> str:
+    name = structure_name
+    if name.startswith("OB_PRE_"):
+        name = name[len("OB_PRE_") :]
+    if name.endswith("_INFORMATION"):
+        name = name[: -len("_INFORMATION")]
+    parts = [part for part in name.split("_") if part]
+    return "".join(part[:1] + part[1:].lower() for part in parts) + "Information"
+
+
+def _ob_pre_operation_original_desired_access_field_name() -> str:
+    for structure_name in (
+        _OB_PRE_CREATE_HANDLE_INFORMATION,
+        _OB_PRE_DUPLICATE_HANDLE_INFORMATION,
+    ):
+        field = _profile_field_by_name(structure_name, "OriginalDesiredAccess")
+        if field is not None:
+            return field.name
+    return "OriginalDesiredAccess"
 
 
 def _rewrite_provider_list_traversal(text: str) -> str:

@@ -122,6 +122,238 @@ __int64 __fastcall SameNamedFieldConflictSample(struct _GENERIC_OBJECT *object)
 """
 
 
+LIST_ENTRY_HEAD_PARAMETER_SAMPLE = r"""
+__int64 __fastcall ListEntryHeadParameterSample(__int64 context, _QWORD *a2, __int64 value)
+{
+  _QWORD *v1;
+  _QWORD *v2;
+
+  v1 = (_QWORD *)*a2;
+  if ( (_QWORD *)*a2 == a2 )
+  {
+    v2 = (_QWORD *)a2[1];
+    if ( (_QWORD *)*v2 != a2 )
+    {
+      __fastfail(3u);
+    }
+    *v1 = a2;
+    a2[1] = v1;
+  }
+  return value;
+}
+"""
+
+
+LIST_ENTRY_HEAD_FALSE_POSITIVE_SAMPLE = r"""
+__int64 __fastcall PointerArraySample(_QWORD *a1)
+{
+  if ( a1[1] )
+  {
+    return a1[1];
+  }
+  return 0;
+}
+"""
+
+
+LIST_ENTRY_HEAD_LOCAL_SAMPLE = r"""
+void __fastcall ListEntryHeadLocalSample(__int64 context)
+{
+  _QWORD **v11;
+  _QWORD *v14;
+  _QWORD *v15;
+
+  v11 = (_QWORD **)(context + 136);
+  while ( *(_DWORD *)(context + 740) > *(_DWORD *)(context + 736) )
+  {
+    v14 = *v11;
+    if ( *v11 == v11 )
+    {
+      break;
+    }
+    if ( (_QWORD **)v14[1] != v11 )
+    {
+      __fastfail(3u);
+    }
+    v15 = (_QWORD *)*v14;
+    *v11 = v15;
+    v15[1] = v11;
+  }
+}
+"""
+
+
+LOOKASIDE_ENTRY_ALLOCATION_SAMPLE = r"""
+void __fastcall LookasideEntryAllocationSample(__int64 context)
+{
+  _OWORD *v9;
+
+  v9 = ExAllocateFromNPagedLookasideList((PNPAGED_LOOKASIDE_LIST)(context + 192));
+  if ( v9 )
+  {
+    *v9 = 0LL;
+    *((_QWORD *)v9 + 5) = _InterlockedIncrement((volatile signed __int32 *)(context + 740));
+  }
+}
+"""
+
+
+LOOKASIDE_ENTRY_ALLOCATION_AMBIGUOUS_SAMPLE = r"""
+void __fastcall AmbiguousLookasideEntryAllocationSample(__int64 context)
+{
+  _OWORD *v9;
+  _OWORD *v10;
+
+  v9 = ExAllocateFromNPagedLookasideList((PNPAGED_LOOKASIDE_LIST)(context + 192));
+  v10 = ExAllocateFromNPagedLookasideList((PNPAGED_LOOKASIDE_LIST)(context + 320));
+  if ( v9 && v10 )
+  {
+    *v9 = 0LL;
+    *v10 = 0LL;
+  }
+}
+"""
+
+
+STRUCTURE_BASE_PARAMETER_SAMPLE = r"""
+void __fastcall StructureBaseParameterSample(__int64 a1)
+{
+  if ( !_InterlockedCompareExchange((volatile signed __int32 *)(a1 + 812), 0, 0) )
+  {
+    ExAcquireFastMutex((PFAST_MUTEX)(a1 + 72));
+    KeAcquireSpinLockRaiseToDpc((PKSPIN_LOCK)(a1 + 128));
+    *(_DWORD *)(a1 + 784) = STATUS_INSUFFICIENT_RESOURCES;
+  }
+}
+"""
+
+
+STRUCTURE_BASE_FALSE_POSITIVE_SAMPLE = r"""
+__int64 __fastcall ScalarArithmeticSample(__int64 a1)
+{
+  __int64 v1;
+
+  v1 = a1 + 8;
+  return v1 + a1 + 16;
+}
+"""
+
+
+OPTIMIZED_MEMMOVE_PARAMETER_SAMPLE = r"""
+void *__fastcall OptimizedMoveSample(char *a1, char *a2, unsigned __int64 a3)
+{
+  void *result;
+  signed __int64 v4;
+  char *v5;
+  char v6;
+
+  result = a1;
+  if ( a3 )
+  {
+    v4 = a2 - a1;
+    if ( a2 < a1 )
+    {
+      v5 = &a1[a3];
+      do
+      {
+        v6 = v5[v4 - 1];
+        --v5;
+        --a3;
+        *v5 = v6;
+      }
+      while ( a3 );
+    }
+    else
+    {
+      do
+      {
+        v6 = a1[v4];
+        ++a1;
+        --a3;
+        *(a1 - 1) = v6;
+      }
+      while ( a3 );
+    }
+  }
+  return result;
+}
+"""
+
+
+OPTIMIZED_MEMSET_PARAMETER_SAMPLE = r"""
+__int64 __fastcall OptimizedFillSample(char *a1, unsigned __int8 a2, unsigned __int64 a3)
+{
+  __int64 result;
+  __int64 v4;
+
+  result = (__int64)a1;
+  v4 = 0x101010101010101LL * a2;
+  if ( a3 >= 4 )
+  {
+    *(_DWORD *)a1 = v4;
+    *(_DWORD *)&a1[a3 - 4] = v4;
+  }
+  else
+  {
+    if ( a3 )
+    {
+      *a1 = v4;
+    }
+  }
+  return result;
+}
+"""
+
+
+RUNTIME_MEMORY_FALSE_POSITIVE_SAMPLE = r"""
+__int64 __fastcall ThreeArgumentArithmeticSample(char *a1, unsigned __int8 a2, unsigned __int64 a3)
+{
+  __int64 result;
+
+  result = (__int64)a1;
+  if ( a3 > 4 )
+  {
+    return result + a2 + a3;
+  }
+  return result;
+}
+"""
+
+
+OUTPUT_BUFFER_CONTRACT_SAMPLE = r"""
+__int64 __fastcall OutputBufferContractSample(__int64 a1, _DWORD *a2, unsigned int a3, _QWORD *a4)
+{
+  __int64 **v1;
+
+  if ( a3 < 0x18 )
+  {
+    return STATUS_BUFFER_TOO_SMALL;
+  }
+  v1 = (__int64 **)(a1 + 136);
+  *a2 = 24;
+  a2[1] = 1;
+  a2[4] = *(_DWORD *)(a1 + 740);
+  *(_OWORD *)&a2[6] = *((_OWORD *)*v1 + 1);
+  *a4 = 24LL;
+  KeAcquireSpinLockRaiseToDpc((PKSPIN_LOCK)(a1 + 128));
+  return 0LL;
+}
+"""
+
+
+OUTPUT_BUFFER_CONTRACT_FALSE_POSITIVE_SAMPLE = r"""
+__int64 __fastcall LengthCheckedInputSample(_DWORD *a1, _DWORD *a2, unsigned int a3, _QWORD *a4)
+{
+  if ( a3 < 0x18 )
+  {
+    return STATUS_BUFFER_TOO_SMALL;
+  }
+  *a4 = a3;
+  return *a1 + *a2;
+}
+"""
+
+
 class RenameHeuristicTests(unittest.TestCase):
     def test_identifier_renames_do_not_touch_struct_members(self) -> None:
         class FakeProvider:
@@ -303,6 +535,140 @@ __int64 __fastcall TextLvarMergeSample()
         self.assertEqual(rename_map["MappedSystemVa"], "mappedAddress")
         self.assertIn("mappedAddress = object->MappedSystemVa;", rendered)
         self.assertNotIn("object->mappedAddress", rendered)
+
+    def test_list_entry_head_parameter_gets_dataflow_name(self) -> None:
+        capture = capture_from_pseudocode(LIST_ENTRY_HEAD_PARAMETER_SAMPLE)
+        plan = build_clean_plan(capture)
+        rename_map = {item.old: item.new for item in plan.renames if item.apply}
+        rendered = render_cleaned_pseudocode(capture, plan)
+
+        self.assertEqual(rename_map["a2"], "listHead")
+        self.assertIn("_QWORD *listHead", rendered)
+        self.assertIn("(_QWORD *)*listHead == listHead", rendered)
+        self.assertNotIn("argument1", rendered)
+
+    def test_list_entry_head_parameter_requires_self_referential_use(self) -> None:
+        capture = capture_from_pseudocode(LIST_ENTRY_HEAD_FALSE_POSITIVE_SAMPLE)
+        plan = build_clean_plan(capture)
+        rename_map = {item.old: item.new for item in plan.renames if item.apply}
+        rendered = render_cleaned_pseudocode(capture, plan)
+
+        self.assertNotIn("listHead", rename_map.values())
+        self.assertIn("argument0[1]", rendered)
+
+    def test_structure_base_parameter_gets_context_name(self) -> None:
+        capture = capture_from_pseudocode(STRUCTURE_BASE_PARAMETER_SAMPLE)
+        plan = build_clean_plan(capture)
+        rename_map = {item.old: item.new for item in plan.renames if item.apply}
+        rendered = render_cleaned_pseudocode(capture, plan)
+
+        self.assertEqual(rename_map["a1"], "context")
+        self.assertIn("StructureBaseParameterSample(__int64 context)", rendered)
+        self.assertIn("(volatile signed __int32 *)(context + 812)", rendered)
+        self.assertIn("(PFAST_MUTEX)(context + 72)", rendered)
+
+    def test_structure_base_parameter_requires_pointer_offset_evidence(self) -> None:
+        capture = capture_from_pseudocode(STRUCTURE_BASE_FALSE_POSITIVE_SAMPLE)
+        plan = build_clean_plan(capture)
+        rename_map = {item.old: item.new for item in plan.renames if item.apply}
+        rendered = render_cleaned_pseudocode(capture, plan)
+
+        self.assertNotIn("context", rename_map.values())
+        self.assertIn("argument0 + 8", rendered)
+
+    def test_list_entry_head_local_gets_dataflow_name(self) -> None:
+        capture = capture_from_pseudocode(LIST_ENTRY_HEAD_LOCAL_SAMPLE)
+        plan = build_clean_plan(capture)
+        rename_map = {item.old: item.new for item in plan.renames if item.apply}
+        rendered = render_cleaned_pseudocode(capture, plan)
+
+        self.assertEqual(rename_map["v11"], "listHead")
+        self.assertIn("_QWORD **listHead;", rendered)
+        self.assertIn("if ( *listHead == listHead )", rendered)
+        self.assertIn("v15[1] = listHead;", rendered)
+
+    def test_single_lookaside_allocation_result_gets_entry_name(self) -> None:
+        capture = capture_from_pseudocode(LOOKASIDE_ENTRY_ALLOCATION_SAMPLE)
+        plan = build_clean_plan(capture)
+        rename_map = {item.old: item.new for item in plan.renames if item.apply}
+        rendered = render_cleaned_pseudocode(capture, plan)
+
+        self.assertEqual(rename_map["v9"], "lookasideEntry")
+        self.assertIn("_OWORD *lookasideEntry;", rendered)
+        self.assertIn("lookasideEntry = ExAllocateFromNPagedLookasideList", rendered)
+        self.assertNotIn("*v9 = 0LL;", rendered)
+
+    def test_lookaside_allocation_rename_skips_ambiguous_multiple_allocations(self) -> None:
+        capture = capture_from_pseudocode(LOOKASIDE_ENTRY_ALLOCATION_AMBIGUOUS_SAMPLE)
+        plan = build_clean_plan(capture)
+        rename_map = {item.old: item.new for item in plan.renames if item.apply}
+        rendered = render_cleaned_pseudocode(capture, plan)
+
+        self.assertNotIn("lookasideEntry", rename_map.values())
+        self.assertIn("v9 = ExAllocateFromNPagedLookasideList", rendered)
+        self.assertIn("v10 = ExAllocateFromNPagedLookasideList", rendered)
+
+    def test_optimized_memmove_parameters_get_dataflow_names(self) -> None:
+        capture = capture_from_pseudocode(OPTIMIZED_MEMMOVE_PARAMETER_SAMPLE)
+        plan = build_clean_plan(capture)
+        rename_map = {item.old: item.new for item in plan.renames if item.apply}
+        rendered = render_cleaned_pseudocode(capture, plan)
+
+        self.assertEqual(rename_map["a1"], "destination")
+        self.assertEqual(rename_map["a2"], "source")
+        self.assertEqual(rename_map["a3"], "byteCount")
+        self.assertIn("OptimizedMoveSample(char *destination, char *source, unsigned __int64 byteCount)", rendered)
+        self.assertIn("v4 = source - destination;", rendered)
+        self.assertIn("v5 = &destination[byteCount];", rendered)
+
+    def test_optimized_memset_parameters_get_dataflow_names(self) -> None:
+        capture = capture_from_pseudocode(OPTIMIZED_MEMSET_PARAMETER_SAMPLE)
+        plan = build_clean_plan(capture)
+        rename_map = {item.old: item.new for item in plan.renames if item.apply}
+        rendered = render_cleaned_pseudocode(capture, plan)
+
+        self.assertEqual(rename_map["a1"], "destination")
+        self.assertEqual(rename_map["a2"], "fillByte")
+        self.assertEqual(rename_map["a3"], "byteCount")
+        self.assertIn(
+            "OptimizedFillSample(char *destination, unsigned __int8 fillByte, unsigned __int64 byteCount)",
+            rendered,
+        )
+        self.assertIn("v4 = 0x101010101010101LL * fillByte;", rendered)
+
+    def test_runtime_memory_parameter_rename_requires_copy_or_fill_evidence(self) -> None:
+        capture = capture_from_pseudocode(RUNTIME_MEMORY_FALSE_POSITIVE_SAMPLE)
+        plan = build_clean_plan(capture)
+        rename_map = {item.old: item.new for item in plan.renames if item.apply}
+        rendered = render_cleaned_pseudocode(capture, plan)
+
+        self.assertNotIn("destination", rename_map.values())
+        self.assertNotIn("fillByte", rename_map.values())
+        self.assertIn("argument2 > 4", rendered)
+
+    def test_output_buffer_contract_parameters_get_dataflow_names(self) -> None:
+        capture = capture_from_pseudocode(OUTPUT_BUFFER_CONTRACT_SAMPLE)
+        plan = build_clean_plan(capture)
+        rename_map = {item.old: item.new for item in plan.renames if item.apply}
+        rendered = render_cleaned_pseudocode(capture, plan)
+
+        self.assertEqual(rename_map["a1"], "context")
+        self.assertEqual(rename_map["a2"], "outputBuffer")
+        self.assertEqual(rename_map["a3"], "outputBufferLength")
+        self.assertEqual(rename_map["a4"], "returnLength")
+        self.assertIn("_DWORD *outputBuffer", rendered)
+        self.assertIn("outputBufferLength < 0x18", rendered)
+        self.assertIn("*returnLength = 24LL;", rendered)
+
+    def test_output_buffer_contract_requires_structured_output_writes(self) -> None:
+        capture = capture_from_pseudocode(OUTPUT_BUFFER_CONTRACT_FALSE_POSITIVE_SAMPLE)
+        plan = build_clean_plan(capture)
+        rename_map = {item.old: item.new for item in plan.renames if item.apply}
+        rendered = render_cleaned_pseudocode(capture, plan)
+
+        self.assertNotIn("outputBuffer", rename_map.values())
+        self.assertNotIn("returnLength", rename_map.values())
+        self.assertIn("argument2 < 0x18", rendered)
 
 
 if __name__ == "__main__":

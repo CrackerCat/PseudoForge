@@ -13,7 +13,7 @@ from ida_pseudoforge.core.plan_schema import FunctionCapture, LocalVariable
 
 DECL_RE = re.compile(
     r"^\s*(?P<type>(?:const\s+)?[A-Za-z_][A-Za-z0-9_:\s\*\&<>]*?)\s+"
-    r"(?P<ptr>[\*\&]\s*)?"
+    r"(?P<ptr>[\*\&][\*\&\s]*)?"
     r"(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*(?:;|=|,|\[)"
 )
 

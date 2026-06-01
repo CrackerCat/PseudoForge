@@ -72,6 +72,14 @@ def kernel_function_metadata(name: str) -> dict[str, Any]:
     return _function_metadata_for_name(_kernel_functions(), name)
 
 
+def kernel_structure_metadata(name: str) -> dict[str, Any]:
+    return _metadata_by_name(_kernel_structures(), name)
+
+
+def kernel_type_alias_metadata(name: str) -> dict[str, Any]:
+    return _metadata_by_name(_kernel_aliases(), name)
+
+
 def apply_kernel_api_rewrites(text: str) -> str:
     functions = _kernel_functions()
     if not isinstance(functions, dict) or not functions:
@@ -181,6 +189,24 @@ def _kernel_symbols() -> dict[str, Any]:
 def _kernel_indices() -> dict[str, Any]:
     indices = load_kernel_api_family("indices")
     return indices if isinstance(indices, dict) else {}
+
+
+def _metadata_by_name(source: dict[str, Any], name: str) -> dict[str, Any]:
+    target = str(name or "").strip()
+    if not target:
+        return {}
+
+    candidates = [target]
+    if target.startswith("_") and len(target) > 1:
+        candidates.append(target[1:])
+    else:
+        candidates.append("_" + target)
+
+    for candidate in candidates:
+        metadata = source.get(candidate)
+        if isinstance(metadata, dict):
+            return dict(metadata)
+    return {}
 
 
 def _function_metadata_for_name(functions: dict[str, Any], name: str) -> dict[str, Any]:
