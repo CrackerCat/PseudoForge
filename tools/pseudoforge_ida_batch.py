@@ -37,6 +37,11 @@ from ida_pseudoforge.core.helper_aliases import (
     is_runtime_helper_alias_advisory,
     runtime_helper_alias_summary,
 )
+from ida_pseudoforge.core.llm_failures import (
+    format_llm_fallback_warning,
+    is_llm_provider_cyber_policy_block,
+    summarize_llm_failure,
+)
 from ida_pseudoforge.core.lvar_analysis import build_clean_plan
 from ida_pseudoforge.core.plan_schema import CleanPlan, FunctionCapture, LocalVariable
 from ida_pseudoforge.core.render import render_cleaned_pseudocode
@@ -293,7 +298,10 @@ def _analyze_function(
         pseudocode = _cfunc_text(cfunc)
         capture = capture_from_pseudocode(pseudocode, name=name, ea=ea, source_path=str(target_path))
         capture.lvars = merge_lvars_from_text_and_cfunc(capture.lvars, _extract_lvars_from_cfunc(cfunc))
-        plan, llm_status, llm_error = _build_plan_with_optional_llm(capture, rename_provider)
+        plan, llm_status, llm_error, llm_error_class, llm_error_summary = _build_plan_with_optional_llm(
+            capture,
+            rename_provider,
+        )
         render_result = _render_cleaned_with_ida_postprocess(capture, plan)
         plan = render_result.plan
         cleaned = render_result.cleaned
@@ -324,6 +332,10 @@ def _analyze_function(
             result["llm_model"] = llm_info.get("model", "")
         if llm_error:
             result["llm_error"] = llm_error
+        if llm_error_summary:
+            result["llm_error_summary"] = llm_error_summary
+        if llm_error_class:
+            result["llm_error_class"] = llm_error_class
         if args.compare_dir:
             result["comparison"] = _write_compare_artifacts(
                 Path(args.compare_dir),
@@ -410,13 +422,14 @@ def _build_llm_context(args: argparse.Namespace) -> tuple[Any | None, dict[str, 
 
 def _build_plan_with_optional_llm(capture, rename_provider: Any | None):
     if rename_provider is None:
-        return build_clean_plan(capture), "disabled", ""
+        return build_clean_plan(capture), "disabled", "", "", ""
     try:
-        return build_clean_plan(capture, rename_provider=rename_provider), "ok", ""
+        return build_clean_plan(capture, rename_provider=rename_provider), "ok", "", "", ""
     except Exception as exc:
         plan = build_clean_plan(capture)
-        plan.warnings.insert(0, "LLM rename assist failed; deterministic fallback used: %s" % exc)
-        return plan, "fallback", str(exc)
+        plan.warnings.insert(0, format_llm_fallback_warning(exc))
+        error_class = "cyber_policy_block" if is_llm_provider_cyber_policy_block(exc) else "provider_failure"
+        return plan, "fallback", str(exc), error_class, summarize_llm_failure(exc)
 
 
 def _render_cleaned_with_ida_postprocess(

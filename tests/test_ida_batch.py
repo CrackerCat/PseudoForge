@@ -97,10 +97,12 @@ __int64 __fastcall LlmBatchSample(int a1)
 }
 """
         )
-        plan, status, error = _build_plan_with_optional_llm(capture, FakeProvider())
+        plan, status, error, error_class, error_summary = _build_plan_with_optional_llm(capture, FakeProvider())
 
         self.assertEqual(status, "ok")
         self.assertEqual(error, "")
+        self.assertEqual(error_class, "")
+        self.assertEqual(error_summary, "")
         self.assertTrue(any(item.source == "llm" and item.old == "v1" for item in plan.renames))
 
     def test_ida_batch_optional_llm_falls_back_on_provider_failure(self) -> None:
@@ -109,11 +111,30 @@ __int64 __fastcall LlmBatchSample(int a1)
                 raise RuntimeError("provider unavailable")
 
         capture = capture_from_pseudocode(BATCH_BOOLEAN_SAMPLE)
-        plan, status, error = _build_plan_with_optional_llm(capture, FailingProvider())
+        plan, status, error, error_class, error_summary = _build_plan_with_optional_llm(capture, FailingProvider())
 
         self.assertEqual(status, "fallback")
         self.assertIn("provider unavailable", error)
+        self.assertEqual(error_class, "provider_failure")
+        self.assertIn("provider unavailable", error_summary)
         self.assertIn("LLM rename assist failed; deterministic fallback used", plan.warnings[0])
+
+    def test_ida_batch_optional_llm_reports_provider_cyber_policy_block(self) -> None:
+        class FailingProvider:
+            def suggest_renames(self, capture):
+                raise RuntimeError(
+                    "API Error: request violates Usage Policy and triggered cyber-related safeguards. "
+                    "Request ID: req_policy_123"
+                )
+
+        capture = capture_from_pseudocode(BATCH_BOOLEAN_SAMPLE)
+        plan, status, error, error_class, error_summary = _build_plan_with_optional_llm(capture, FailingProvider())
+
+        self.assertEqual(status, "fallback")
+        self.assertIn("Usage Policy", error)
+        self.assertEqual(error_class, "cyber_policy_block")
+        self.assertEqual(error_summary, "provider cyber policy block request_id=req_policy_123")
+        self.assertIn("blocked by provider cyber policy", plan.warnings[0])
 
     def test_ida_batch_compare_artifacts_include_raw_cleaned_and_diff(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

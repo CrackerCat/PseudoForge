@@ -22,6 +22,11 @@ from ida_pseudoforge.core.helper_aliases import (
     is_runtime_helper_alias_advisory,
     runtime_helper_alias_summary,
 )
+from ida_pseudoforge.core.llm_failures import (
+    format_llm_fallback_warning,
+    is_llm_provider_cyber_policy_block,
+    summarize_llm_failure,
+)
 from ida_pseudoforge.core.lvar_analysis import build_clean_plan
 from ida_pseudoforge.core.plan_schema import CleanPlan, FunctionCapture
 from ida_pseudoforge.core.render import render_cleaned_pseudocode
@@ -1012,24 +1017,33 @@ def _build_plan_with_config(capture: FunctionCapture, task_name: str = "") -> Cl
     except CancellationRequested:
         raise
     except Exception as exc:
-        failure_summary = _summarize_llm_failure(exc)
+        failure_summary = summarize_llm_failure(exc)
+        fallback_warning = format_llm_fallback_warning(exc)
+        failure_class = "cyber_policy_block" if is_llm_provider_cyber_policy_block(exc) else "provider_failure"
         log_event(
-            "llm.failed provider=%s model=\"%s\" function=\"%s\" error=\"%s\""
+            "llm.failed provider=%s model=\"%s\" function=\"%s\" class=%s error=\"%s\""
             % (
                 provider_name,
                 _ascii_for_log(config.llm.model),
                 _ascii_for_log(capture.name),
+                failure_class,
                 _ascii_for_log(str(exc)),
             )
         )
-        log_output(
-            "PseudoForge LLM rename assist failed; deterministic fallback will be used. Reason: %s"
-            % failure_summary
-        )
+        if is_llm_provider_cyber_policy_block(exc):
+            log_output(
+                "PseudoForge LLM rename assist blocked by provider cyber policy; "
+                "deterministic fallback will be used. Reason: %s" % failure_summary
+            )
+        else:
+            log_output(
+                "PseudoForge LLM rename assist failed; deterministic fallback will be used. Reason: %s"
+                % failure_summary
+            )
         with trace_scope("build_plan.fallback", function=capture.name, ea="0x%X" % capture.ea):
             plan = build_clean_plan(capture)
         _raise_if_task_cancelled(task_name, "after fallback plan")
-        plan.warnings.insert(0, f"LLM rename assist failed; deterministic fallback used: {exc}")
+        plan.warnings.insert(0, fallback_warning)
         return plan
 
 
@@ -1074,15 +1088,6 @@ def _format_warning(item: object) -> str:
         if old and reason:
             return "Potential bad call target %s: %s" % (old, reason)
     return str(item)
-
-
-def _summarize_llm_failure(error: object) -> str:
-    text = " ".join(str(error or "").split())
-    if not text:
-        return "unknown error"
-    if len(text) > 220:
-        text = text[:217].rstrip() + "..."
-    return _ascii_for_log(text)
 
 
 def _raise_if_task_cancelled(task_name: str, phase: str) -> None:

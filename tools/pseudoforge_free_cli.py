@@ -19,6 +19,7 @@ from tools.pseudoforge_free_console import (
     format_plan_mode,
     format_rule_dirs,
 )
+from ida_pseudoforge.core.llm_failures import format_llm_fallback_warning
 from ida_pseudoforge.core.rule_diagnostics import summarize_rule_report
 from ida_pseudoforge.version import VERSION, plugin_title
 
@@ -305,7 +306,7 @@ def _build_plan(capture: Any, args: argparse.Namespace, deps: _Deps, rule_dirs: 
         return deps.build_clean_plan(capture, rename_provider=provider, rule_dirs=rule_dirs), "ok"
     except Exception as exc:
         plan = deps.build_clean_plan(capture, rule_dirs=rule_dirs)
-        plan.warnings.insert(0, "LLM rename assist failed; deterministic fallback used: %s" % ascii_text(str(exc)))
+        plan.warnings.insert(0, format_llm_fallback_warning(exc))
         return plan, "failed_fallback"
 
 

@@ -17,6 +17,7 @@ from ida_pseudoforge.core.plan_schema import (
     RenameSuggestion,
     make_lvar_identity,
 )
+from ida_pseudoforge.core.llm_failures import summarize_llm_failure
 from ida_pseudoforge.ida import actions as actions_module
 from ida_pseudoforge.ida import apply_changes as apply_module
 from ida_pseudoforge.ida import async_runner
@@ -280,7 +281,7 @@ class IdaPluginSafetyTests(unittest.TestCase):
         self.assertIn("memset(localBuffer, 0, sizeof(localBuffer));", rendered)
 
     def test_llm_failure_summary_is_short_and_ascii_safe(self):
-        summary = actions_module._summarize_llm_failure(
+        summary = summarize_llm_failure(
             RuntimeError("You've hit your session limit \u00b7 resets 2:20am (Asia/Seoul)" + " x" * 200)
         )
 
@@ -1199,6 +1200,55 @@ __int64 __fastcall sub_140001000(int argument)
 
         self.assertEqual(configured, [selected])
         self.assertEqual(plan.function_ea, capture.ea)
+
+    def test_build_plan_logs_provider_cyber_policy_block_to_output_and_plan(self):
+        capture = _capture()
+        old_load = actions_module.load_config
+        old_configure = actions_module.configure_profile_dir
+        old_active = actions_module.active_profile_root
+        old_provider = actions_module.build_rename_provider
+        old_api_key = actions_module.get_provider_api_key
+        old_build = actions_module.build_clean_plan
+        old_log_output = actions_module.log_output
+        messages = []
+        error = (
+            "API Error: request violates Usage Policy and triggered cyber-related safeguards. "
+            "Request ID: req_policy_456"
+        )
+
+        def fake_build(captured, rename_provider=None):
+            if rename_provider is not None:
+                raise RuntimeError(error)
+            return _plan(captured)
+
+        actions_module.load_config = lambda: PseudoForgeConfig(
+            llm=LlmConfig(
+                enabled=True,
+                provider="claude_login_via_claude_cli",
+                model="claude-opus-4-8",
+            ),
+        )
+        actions_module.configure_profile_dir = lambda profile_dir: Path(r"F:\profiles\default")
+        actions_module.active_profile_root = lambda: Path(r"F:\profiles\default")
+        actions_module.build_rename_provider = lambda config, api_key="": object()
+        actions_module.get_provider_api_key = lambda config, provider: ""
+        actions_module.build_clean_plan = fake_build
+        actions_module.log_output = messages.append
+        try:
+            plan = actions_module._build_plan_with_config(capture)
+        finally:
+            actions_module.load_config = old_load
+            actions_module.configure_profile_dir = old_configure
+            actions_module.active_profile_root = old_active
+            actions_module.build_rename_provider = old_provider
+            actions_module.get_provider_api_key = old_api_key
+            actions_module.build_clean_plan = old_build
+            actions_module.log_output = old_log_output
+
+        self.assertIn("blocked by provider cyber policy", "\n".join(messages))
+        self.assertIn("req_policy_456", "\n".join(messages))
+        self.assertIn("blocked by provider cyber policy", plan.warnings[0])
+        self.assertIn("req_policy_456", plan.warnings[0])
 
     def test_show_settings_includes_plugin_version(self):
         handler = actions_module.ShowSettingsHandler()
